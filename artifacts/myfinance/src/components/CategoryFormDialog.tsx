@@ -162,15 +162,13 @@ export const CategoryFormDialog = ({ open, onOpenChange, category }: CategoryFor
                         {Object.keys(IconMap).map((iconName) => {
                           const Icon = IconMap[iconName];
                           return (
-                                    <SelectItem
-                                      key={iconName}
-                                      value={iconName}
-                                      className="justify-center cursor-pointer"
-                                      hideIndicator
-                                    >
-                                      <Icon className="w-5 h-5 mx-auto" />
-                                    </SelectItem>
-                         
+                    <SelectItem
+                      key={iconName}
+                      value={iconName}
+                      className="justify-center cursor-pointer"
+                    >
+                      <Icon className="w-5 h-5 mx-auto" />
+                    </SelectItem>
                           );
                         })}
                       </div>
