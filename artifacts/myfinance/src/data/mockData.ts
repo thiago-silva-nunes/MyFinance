@@ -66,6 +66,16 @@ export interface Invoice {
   paidTransactionId?: string;
 }
 
+export interface Budget {
+  id: string;
+  categoryId: string;
+  name: string;
+  amount: number;
+  recurrence: 'mensal' | 'pontual';
+  referenceMonth?: string; // 'YYYY-MM' — only for recurrence='pontual'
+  active: boolean;
+}
+
 export const defaultCategories: Category[] = [
   { id: 'cat-1', name: 'Salário', type: 'income', color: '#22c55e', icon: 'wallet', dreGroup: 'receita' },
   { id: 'cat-2', name: 'Freelance', type: 'income', color: '#10b981', icon: 'briefcase', dreGroup: 'receita' },

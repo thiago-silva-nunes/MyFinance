@@ -357,13 +357,17 @@ export const dataService = {
       .single();
     if (error) throw error;
 
-    // Ensure invoice exists and recalculate total
+    // ── NON-CRITICAL: ensure invoice and recalc total ─────────────────────
     if (tx.cardId && referenceMonth) {
-      const cardRow = await supabase.from('credit_cards').select('*').eq('id', tx.cardId).single();
-      if (cardRow.data) {
-        const card = mapCardRow(cardRow.data as Record<string, unknown>);
-        await ensureInvoice(user.id, card, referenceMonth);
-        await recalcInvoiceTotal(tx.cardId, referenceMonth);
+      try {
+        const cardRow = await supabase.from('credit_cards').select('*').eq('id', tx.cardId).single();
+        if (cardRow.data) {
+          const card = mapCardRow(cardRow.data as Record<string, unknown>);
+          await ensureInvoice(user.id, card, referenceMonth);
+          await recalcInvoiceTotal(tx.cardId, referenceMonth);
+        }
+      } catch (invoiceErr) {
+        console.warn('[addTransaction] Falha ao atualizar fatura (não crítico):', invoiceErr);
       }
     }
 
@@ -426,12 +430,18 @@ export const dataService = {
       });
     }
 
+    // ── CRITICAL: insert all installment rows ─────────────────────────────
     const { error } = await supabase.from('transactions').insert(rows);
     if (error) throw error;
 
+    // ── NON-CRITICAL: update invoice totals per affected month ────────────
     for (const refMonth of affectedMonths) {
-      await ensureInvoice(user.id, card, refMonth);
-      await recalcInvoiceTotal(tx.cardId!, refMonth);
+      try {
+        await ensureInvoice(user.id, card, refMonth);
+        await recalcInvoiceTotal(tx.cardId!, refMonth);
+      } catch (invoiceErr) {
+        console.warn(`[addInstallments] Falha ao atualizar fatura ${refMonth} (não crítico):`, invoiceErr);
+      }
     }
   },
 
@@ -478,16 +488,20 @@ export const dataService = {
       .single();
     if (error) throw error;
 
-    // Recalculate affected invoices
+    // ── NON-CRITICAL: recalculate affected invoices ───────────────────────
     const oldCardId = existing?.card_id;
     const oldRef = existing?.reference_month;
     const newRef = data.reference_month;
 
-    if (oldCardId && oldRef && (oldCardId !== data.card_id || oldRef !== newRef)) {
-      await recalcInvoiceTotal(oldCardId, oldRef);
-    }
-    if (data.card_id && newRef) {
-      await recalcInvoiceTotal(data.card_id, newRef);
+    try {
+      if (oldCardId && oldRef && (oldCardId !== data.card_id || oldRef !== newRef)) {
+        await recalcInvoiceTotal(oldCardId, oldRef);
+      }
+      if (data.card_id && newRef) {
+        await recalcInvoiceTotal(data.card_id, newRef);
+      }
+    } catch (invoiceErr) {
+      console.warn('[updateTransaction] Falha ao recalcular fatura (não crítico):', invoiceErr);
     }
 
     return {
@@ -741,6 +755,79 @@ export const dataService = {
       .update({ status: 'paid', paid_transaction_id: txRow.id })
       .eq('id', invoice.id);
     if (invErr) throw invErr;
+  },
+
+  // ─── Budgets ──────────────────────────────────────────────────────────────
+
+  getBudgets: async (): Promise<import('../data/mockData').Budget[]> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    const { data, error } = await supabase
+      .from('budgets')
+      .select('id, category_id, name, amount, recurrence, reference_month, active')
+      .eq('user_id', user.id)
+      .order('created_at');
+    if (error) throw error;
+    return (data ?? []).map((row) => ({
+      id: row.id,
+      categoryId: row.category_id,
+      name: row.name,
+      amount: Number(row.amount),
+      recurrence: row.recurrence as 'mensal' | 'pontual',
+      referenceMonth: row.reference_month ?? undefined,
+      active: row.active,
+    }));
+  },
+
+  addBudget: async (b: Omit<import('../data/mockData').Budget, 'id'>): Promise<import('../data/mockData').Budget> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    const { data, error } = await supabase
+      .from('budgets')
+      .insert({
+        user_id: user.id,
+        category_id: b.categoryId,
+        name: b.name,
+        amount: b.amount,
+        recurrence: b.recurrence,
+        reference_month: b.referenceMonth ?? null,
+        active: b.active,
+      })
+      .select('id, category_id, name, amount, recurrence, reference_month, active')
+      .single();
+    if (error) throw error;
+    return {
+      id: data.id, categoryId: data.category_id, name: data.name,
+      amount: Number(data.amount), recurrence: data.recurrence as 'mensal' | 'pontual',
+      referenceMonth: data.reference_month ?? undefined, active: data.active,
+    };
+  },
+
+  updateBudget: async (id: string, b: Partial<import('../data/mockData').Budget>): Promise<import('../data/mockData').Budget> => {
+    const updates: Record<string, unknown> = {};
+    if (b.categoryId !== undefined) updates.category_id = b.categoryId;
+    if (b.name !== undefined) updates.name = b.name;
+    if (b.amount !== undefined) updates.amount = b.amount;
+    if (b.recurrence !== undefined) updates.recurrence = b.recurrence;
+    if (b.referenceMonth !== undefined) updates.reference_month = b.referenceMonth ?? null;
+    if (b.active !== undefined) updates.active = b.active;
+    const { data, error } = await supabase
+      .from('budgets')
+      .update(updates)
+      .eq('id', id)
+      .select('id, category_id, name, amount, recurrence, reference_month, active')
+      .single();
+    if (error) throw error;
+    return {
+      id: data.id, categoryId: data.category_id, name: data.name,
+      amount: Number(data.amount), recurrence: data.recurrence as 'mensal' | 'pontual',
+      referenceMonth: data.reference_month ?? undefined, active: data.active,
+    };
+  },
+
+  deleteBudget: async (id: string): Promise<void> => {
+    const { error } = await supabase.from('budgets').delete().eq('id', id);
+    if (error) throw error;
   },
 
   // ─── Seed data ────────────────────────────────────────────────────────────

@@ -21,6 +21,7 @@ import { Settings } from '@/pages/Settings';
 import { Cards } from '@/pages/Cards';
 import { CardDetail } from '@/pages/CardDetail';
 import { Dre } from '@/pages/Dre';
+import { Budgets } from '@/pages/Budgets';
 import { Login } from '@/pages/Login';
 import { Signup } from '@/pages/Signup';
 
@@ -128,6 +129,7 @@ function AppContent() {
           <Route path="/cards" component={Cards} />
           <Route path="/scheduled" component={Scheduled} />
           <Route path="/dre" component={Dre} />
+          <Route path="/orcamentos" component={Budgets} />
           <Route path="/reports" component={Reports} />
           <Route path="/settings" component={Settings} />
           <Route component={NotFound} />

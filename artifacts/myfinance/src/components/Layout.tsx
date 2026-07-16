@@ -3,7 +3,7 @@ import { Link, useLocation } from 'wouter';
 import {
   LayoutDashboard, Receipt, Tags, CalendarClock, LineChart,
   Settings, Wallet, LogOut, Plus, MoreHorizontal, CreditCard, BarChart2,
-  Eye, EyeOff,
+  Eye, EyeOff, Target,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -25,12 +25,13 @@ const navItems = [
   { href: '/transactions', label: 'Transações',  icon: Receipt },
   { href: '/categories',   label: 'Categorias',  icon: Tags },
   { href: '/cards',        label: 'Cartões',     icon: CreditCard },
+  { href: '/orcamentos',   label: 'Orçamentos',  icon: Target },
   { href: '/scheduled',    label: 'Recorrentes', icon: CalendarClock },
   { href: '/dre',          label: 'DRE',         icon: BarChart2 },
   { href: '/reports',      label: 'Relatórios',  icon: LineChart },
 ];
 
-const moreItems = ['/scheduled', '/dre', '/reports', '/settings'];
+const moreItems = ['/orcamentos', '/scheduled', '/dre', '/reports', '/settings'];
 
 export const Layout = ({ children }: { children: React.ReactNode }) => {
   const [location] = useLocation();
@@ -191,6 +192,9 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="mb-2">
+              <DropdownMenuItem asChild>
+                <Link href="/orcamentos" className="flex items-center gap-2"><Target className="w-4 h-4" /> Orçamentos</Link>
+              </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href="/scheduled" className="flex items-center gap-2"><CalendarClock className="w-4 h-4" /> Recorrentes</Link>
               </DropdownMenuItem>

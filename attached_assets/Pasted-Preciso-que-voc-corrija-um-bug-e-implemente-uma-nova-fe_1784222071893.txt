@@ -1,0 +1,121 @@
+Preciso que você corrija um bug e implemente uma nova feature no projeto MyFinance (Vite + React + TS + Supabase).
+
+═══════════════════════════════════════
+BUG 1 — Erro falso ao lançar compra parcelada
+═══════════════════════════════════════
+
+Arquivo: artifacts/myfinance/src/services/dataService.ts, função `addInstallments`.
+
+Problema: o insert das parcelas em `transactions` funciona normalmente, mas o loop seguinte
+(`for (const refMonth of affectedMonths) { await ensureInvoice(...); await recalcInvoiceTotal(...); }`)
+pode lançar exceção (ex: condição de corrida ao criar a invoice, erro de rede, RLS). Como esse erro
+sobe até `FinanceContext.addInstallments` e depois até `TransactionFormDialog.onSubmit`, o `catch`
+exibe "Erro ao salvar transação" e `refreshData()` nunca é chamado — mesmo as parcelas já tendo sido
+gravadas no banco. Resultado: o usuário vê erro, mas ao recarregar a página as parcelas aparecem.
+
+Corrija assim:
+1. Em `addInstallments`, separe claramente a etapa CRÍTICA (insert das transações) da etapa
+   NÃO CRÍTICA (ensureInvoice/recalcInvoiceTotal). Envolva o loop de `affectedMonths` em try/catch
+   individual por mês, capturando e logando (console.warn) qualquer falha, SEM relançar o erro —
+   a função deve retornar sucesso desde que o insert principal tenha funcionado.
+2. Se algum mês falhar ao atualizar a invoice, retorne do `addInstallments` um aviso (ex: lance
+   um array de warnings ou apenas logue) mas NÃO trate como falha da operação inteira.
+3. Em `FinanceContext.tsx`, garanta que `refreshData()` seja chamado em um `finally` (ou logo após
+   o insert bem-sucedido) para que a lista de transações sempre reflita o estado real do banco,
+   mesmo que uma etapa secundária tenha falhado.
+4. Em `TransactionFormDialog.tsx`, no `onSubmit`, ao lançar parcelado com sucesso, feche o diálogo
+   e mostre um toast de sucesso claro, por exemplo:
+   `toast.success(\`Compra parcelada em \${data.installments}x lançada com sucesso\`)`.
+   Se (e somente se) o insert principal falhar de verdade, mantenha o toast de erro atual.
+5. Aplique a mesma lógica de "insert crítico separado de recálculo não crítico" em `addTransaction`
+   e `updateTransaction`, que têm o mesmo padrão de chamar `ensureInvoice`/`recalcInvoiceTotal`
+   depois do insert/update.
+6. Depois de corrigir, teste o fluxo completo: Nova Transação → Cartão de Crédito → Parcelado → 6x,
+   confirme que aparece toast de sucesso, o diálogo fecha, e a lista de Transações já mostra as
+   parcelas sem precisar dar F5.
+
+═══════════════════════════════════════
+FEATURE NOVA — Orçamento mensal por categoria
+═══════════════════════════════════════
+
+Objetivo: permitir que o usuário defina uma meta de gasto por categoria, com nome próprio e
+recorrência, e visualize se está dentro ou estourando o orçamento.
+
+1. BANCO DE DADOS (criar novo arquivo supabase/schema_v3_budgets.sql, seguindo o padrão dos
+   arquivos schema_v2_cards.sql já existentes):
+
+   create table if not exists budgets (
+     id uuid primary key default gen_random_uuid(),
+     user_id uuid references auth.users(id) on delete cascade not null,
+     category_id uuid references categories(id) on delete cascade not null,
+     name text not null,
+     amount numeric not null check (amount > 0),
+     recurrence text check (recurrence in ('mensal', 'pontual')) not null default 'mensal',
+     reference_month text, -- 'YYYY-MM', obrigatório apenas quando recurrence = 'pontual'
+     active boolean not null default true,
+     created_at timestamptz default now()
+   );
+
+   alter table budgets enable row level security;
+   drop policy if exists "Users manage own budgets" on budgets;
+   create policy "Users manage own budgets"
+     on budgets for all
+     using (auth.uid() = user_id)
+     with check (auth.uid() = user_id);
+
+   Adicione também instrução para rodar esse SQL no Supabase (documentar no replit.md).
+
+2. TIPOS: em artifacts/myfinance/src/data/mockData.ts (ou onde ficam os types), adicione:
+
+   interface Budget {
+     id: string;
+     categoryId: string;
+     name: string;
+     amount: number;
+     recurrence: 'mensal' | 'pontual';
+     referenceMonth?: string; // só para 'pontual'
+     active: boolean;
+   }
+
+3. dataService.ts: adicione funções getBudgets, addBudget, updateBudget, deleteBudget seguindo
+   exatamente o mesmo padrão (mapeamento snake_case <-> camelCase, RLS via user_id) já usado para
+   `categories`/`scheduled_transactions`.
+
+4. FinanceContext.tsx: exponha `budgets`, `addBudget`, `updateBudget`, `deleteBudget` no contexto,
+   carregando junto com os outros dados em `refreshData`.
+
+5. NOVA PÁGINA artifacts/myfinance/src/pages/Budgets.tsx (rota "/orcamentos"):
+   - Lista todos os orçamentos ativos, agrupados por categoria (ícone e cor da categoria, igual à
+     página Categories.tsx).
+   - Para cada orçamento, calcule o "gasto realizado":
+       * Se recurrence = 'mensal': soma de transactions.amount onde type='expense',
+         category_id = budget.category_id, status IN ('paid','pending') e reference_month/date
+         dentro do mês corrente selecionado (use o mesmo seletor de mês já usado no Dashboard).
+       * Se recurrence = 'pontual': soma restrita ao reference_month do próprio orçamento.
+   - Mostre uma barra de progresso (usar componente Progress já existente em components/ui/progress.tsx):
+       * verde até 79% do orçamento
+       * amarelo entre 80% e 99% ("Atenção, perto do limite")
+       * vermelho >= 100% ("Orçamento estourado") com badge destacando quanto passou (valor e %)
+   - Botão "Novo Orçamento" abre um Dialog (reaproveitar padrão de TransactionFormDialog) com campos:
+     nome, categoria (select, só categorias type='expense'), valor, recorrência (mensal/pontual),
+     e mês de referência (só aparece quando pontual).
+   - Ações de editar/excluir por orçamento (ícones lápis/lixeira, igual à tabela de Transactions.tsx).
+   - Card resumo no topo: total orçado no mês, total gasto no mês, % geral utilizado.
+
+6. NAVEGAÇÃO: em components/Layout.tsx, adicione um item de menu "Orçamentos" (ícone Target ou
+   PiggyBank do lucide-react) apontando para "/orcamentos", na mesma lista onde estão Categorias,
+   Cartões, etc.
+
+7. ROTA: em App.tsx, adicione `<Route path="/orcamentos" component={Budgets} />` dentro do bloco de
+   rotas autenticadas, junto das demais.
+
+8. DASHBOARD (opcional, mas recomendado): em pages/Dashboard.tsx, adicione um pequeno card
+   "Orçamentos do mês" mostrando até 3 categorias com maior % de uso do orçamento, com link
+   "Ver todos" para /orcamentos.
+
+9. Siga o design system do projeto (cores, componentes shadcn/ui já usados em Categories.tsx e
+   Transactions.tsx) para manter consistência visual.
+
+Ao final, rode o projeto, teste criar um orçamento mensal para a categoria "Lazer", lance uma
+transação de despesa nessa categoria e confirme que a barra de progresso atualiza corretamente,
+inclusive mudando de cor ao ultrapassar 80% e 100% do valor definido.

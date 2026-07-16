@@ -1,0 +1,4 @@
+- [Invoice recalc error isolation](invoice-recalc-isolation.md) — invoice steps after inserts are non-critical; wrap in per-item try/catch with console.warn, never rethrow.
+- [FinanceContext finally pattern](finance-context-finally.md) — addTransaction/addInstallments/updateTransaction use try/finally so refreshData() always fires even if secondary steps throw.
+- [Progress indicatorClassName](progress-indicator-classname.md) — Progress component was patched to accept indicatorClassName prop for colored bars (green/amber/red).
+- [Budget schema location](budget-schema.md) — budgets table SQL is in supabase/schema_v3_budgets.sql; must be run after schema.sql in Supabase SQL Editor.

@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { getIcon } from '@/components/IconMap';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
-import { ArrowDown, ArrowUp, TrendingUp as TrendingBalance, Bell, Plus, CreditCard, AlertTriangle, TrendingUp, TrendingDown, CalendarRange } from 'lucide-react';
+import { ArrowDown, ArrowUp, TrendingUp as TrendingBalance, Bell, Plus, CreditCard, AlertTriangle, TrendingUp, TrendingDown, CalendarRange, Target } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { TransactionFormDialog } from '@/components/TransactionFormDialog';
 import { Link } from 'wouter';
@@ -82,7 +82,7 @@ function ValueLabel(props: any) {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const Dashboard = () => {
-  const { transactions, scheduled, categories, cards, invoices } = useFinance();
+  const { transactions, scheduled, categories, cards, invoices, budgets } = useFinance();
   const { hideValues } = usePrivacy();
   const [isTransactionFormOpen, setIsTransactionFormOpen] = React.useState(false);
   const [period, setPeriod] = useState<DashPeriod>('current_month');
@@ -196,6 +196,29 @@ export const Dashboard = () => {
     const margem = receitaBruta > 0 ? (resultado / receitaBruta) * 100 : 0;
     return { receitaBruta, deducoes, despesas, resultado, margem };
   }, [transactions, categories, range]);
+
+  // Budget summary for current month (mensal budgets only)
+  const budgetSummary = useMemo(() => {
+    const now = new Date();
+    const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    return budgets
+      .filter(b => b.active && b.recurrence === 'mensal')
+      .map(b => {
+        const spent = transactions
+          .filter(t =>
+            t.type === 'expense' &&
+            t.categoryId === b.categoryId &&
+            (t.status === 'paid' || t.status === 'pending') &&
+            t.date.startsWith(monthPrefix),
+          )
+          .reduce((s, t) => s + t.amount, 0);
+        const pct = b.amount > 0 ? Math.round((spent / b.amount) * 100) : 0;
+        const cat = categories.find(c => c.id === b.categoryId);
+        return { budget: b, spent, pct, cat };
+      })
+      .sort((a, b) => b.pct - a.pct)
+      .slice(0, 3);
+  }, [budgets, transactions, categories]);
 
   const hasAlerts = highUsageCards.length > 0 || dueSoonInvoices.length > 0;
   const isCurrentMonth = period === 'current_month';
@@ -388,6 +411,42 @@ export const Dashboard = () => {
           </Card>
         )}
       </div>
+
+      {/* Budget summary */}
+      {budgetSummary.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Target className="w-4 h-4 text-primary" /> Orçamentos do mês
+              </CardTitle>
+              <Link href="/orcamentos"><Button variant="ghost" size="sm" className="text-xs">Ver todos</Button></Link>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {budgetSummary.map(({ budget, spent, pct, cat }) => {
+              const Icon = getIcon(cat?.icon ?? 'circle');
+              const barColor = pct >= 100 ? 'bg-destructive' : pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500';
+              return (
+                <div key={budget.id} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: cat?.color }} />
+                      <span className="truncate font-medium">{budget.name}</span>
+                    </div>
+                    <span className={cn('text-xs font-medium shrink-0 ml-2',
+                      pct >= 100 ? 'text-destructive' : pct >= 80 ? 'text-amber-600' : 'text-muted-foreground',
+                    )}>
+                      {mask(spent)} / {mask(budget.amount)}
+                    </span>
+                  </div>
+                  <Progress value={Math.min(pct, 100)} className="h-1.5" indicatorClassName={barColor} />
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Top categories chart */}

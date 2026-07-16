@@ -26,7 +26,7 @@ Execute também `supabase/schema.sql` no SQL Editor do Supabase para criar as ta
 ## Where things live
 
 - `artifacts/myfinance/src/` — app React
-  - `pages/` — Dashboard, Transactions, Categories, Scheduled, Reports, Dre, Cards, CardDetail, Settings, Login, Signup
+  - `pages/` — Dashboard, Transactions, Categories, Scheduled, Reports, Dre, Cards, CardDetail, Budgets, Settings, Login, Signup
   - `components/` — Layout (sidebar + bottom nav + FAB), form dialogs (CategoryFormDialog, TransactionFormDialog, CardFormDialog, ScheduledFormDialog), InstallPWA
   - `context/AuthContext.tsx` — autenticação Supabase
   - `context/FinanceContext.tsx` — estado global (categories, subcategories, transactions, cards, invoices)
@@ -34,6 +34,7 @@ Execute também `supabase/schema.sql` no SQL Editor do Supabase para criar as ta
   - `data/mockData.ts` — tipos (Category, Subcategory, Transaction, CreditCard, Invoice) + dados de exemplo
   - `lib/supabase.ts` — cliente Supabase
 - `supabase/schema.sql` — script SQL completo (categories, subcategories, transactions, scheduled_transactions, credit_cards, invoices, RLS, migration guard)
+- `supabase/schema_v3_budgets.sql` — tabela `budgets` com RLS; execute após schema.sql no SQL Editor do Supabase
 
 ## Architecture decisions
 
