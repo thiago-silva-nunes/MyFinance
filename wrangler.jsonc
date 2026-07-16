@@ -1,4 +1,3 @@
-cat > wrangler.jsonc << 'EOF'
 {
   "name": "myfinance",
   "compatibility_date": "2026-07-15",
@@ -7,4 +6,3 @@ cat > wrangler.jsonc << 'EOF'
     "not_found_handling": "single-page-application"
   }
 }
-EOF
