@@ -1,0 +1,83 @@
+# MyFinance — Cartões de Crédito, Faturas e DRE (Integração Completa)
+
+Este prompt assume que o projeto MyFinance **já está integrado ao Supabase** (autenticação, tabelas `categories`, `credit_cards`, `invoices`, `transactions`, `scheduled_transactions` com RLS) e já possui um Dashboard funcionando. O objetivo agora é garantir que o módulo de **Cartões de Crédito** e o módulo de **DRE** estejam 100% funcionais, integrados entre si e visíveis no Dashboard.
+
+---
+
+## Prompt para o Replit (copiar e colar)
+
+```
+Continue o desenvolvimento do projeto MyFinance (React + TypeScript + Vite + Tailwind + Supabase), implementando de ponta a ponta o módulo de Cartões de Crédito e o módulo de DRE, totalmente integrados aos dados reais do Supabase e refletidos no Dashboard.
+
+1. CADASTRO DE CARTÕES DE CRÉDITO
+Crie a tela "/cards" com CRUD completo de cartões, salvando na tabela credit_cards do Supabase (respeitando RLS por user_id). Campos do formulário:
+- Nome/apelido do cartão
+- Banco emissor
+- Bandeira (Visa, Mastercard, Elo, Amex, Outra) — com ícone/cor correspondente
+- Limite total (valor)
+- Dia de fechamento da fatura (1-31)
+- Dia de vencimento da fatura (1-31)
+- Cor de identificação do cartão
+Liste os cartões em formato de "cartão visual" (cardzinho com gradiente na cor escolhida, mostrando banco, bandeira, e limite disponível), similar a um cartão físico.
+
+2. LANÇAMENTOS NO CARTÃO
+No formulário de criação/edição de lançamento (transactions), adicione um campo opcional "Forma de pagamento": Dinheiro/PIX/Débito ou Cartão de Crédito. Se "Cartão de Crédito" for selecionado, exibir um seletor do cartão cadastrado (card_id) e vincular o lançamento a ele.
+
+3. GERAÇÃO E CONTROLE DE FATURAS
+Implemente a lógica de fatura (tabela invoices) da seguinte forma:
+- Ao lançar uma despesa vinculada a um cartão, calcule automaticamente a qual fatura (reference_month) ela pertence, considerando o dia de fechamento do cartão: se a data da compra for antes do fechamento, entra na fatura do mês corrente; se for depois, entra na fatura do mês seguinte.
+- Se a fatura correspondente ainda não existir na tabela invoices, crie-a automaticamente (status "open"), com closing_date e due_date calculados a partir dos dias configurados no cartão.
+- Atualize o total_amount da fatura sempre que um lançamento for adicionado, editado ou removido dela.
+- Quando a data de fechamento da fatura chegar (comparando com a data atual), mude o status da fatura de "open" para "closed" automaticamente ao carregar os dados.
+- Quando a fatura estiver "closed" e a data atual passar do due_date sem estar marcada como paga, mude o status para "overdue".
+
+4. TELA DE DETALHE DO CARTÃO ("/cards/:id")
+Mostre:
+- Fatura atual (aberta), com valor acumulado até o momento e lista de lançamentos que a compõem
+- Histórico de faturas anteriores (mês/ano, valor total, status com badge colorido: aberta=azul, fechada=amarelo, paga=verde, vencida=vermelho)
+- Barra de progresso de limite usado vs. limite disponível (limite total menos soma das faturas em aberto/fechadas não pagas)
+- Botão para marcar uma fatura como "paga" manualmente — ao marcar como paga, gere automaticamente um lançamento de despesa "Fatura [nome do cartão] - [mês/ano]" na categoria de despesas financeiras, com status "paid", para refletir no fluxo de caixa e no DRE.
+
+5. ALERTAS
+No Dashboard e/ou em um sino de notificações, exiba alertas para:
+- Faturas vencendo nos próximos 3 dias
+- Cartões com mais de 80% do limite utilizado
+
+6. INTEGRAÇÃO COM O DASHBOARD EXISTENTE
+Atualize o Dashboard para incluir:
+- Um card de resumo "Cartões de Crédito" mostrando a soma do limite usado em todos os cartões e quantas faturas estão em aberto
+- As próximas faturas a vencer, junto com os outros lançamentos programados já exibidos
+
+7. DRE (DEMONSTRATIVO DE RESULTADO) SOBRE TODOS OS LANÇAMENTOS
+Crie a tela "/dre" puxando os dados reais da tabela transactions (já unificando lançamentos normais e faturas de cartão pagas) do Supabase, agrupados pelo campo dre_group de cada categoria, na seguinte estrutura:
+
+(+) Receita Bruta
+(-) Deduções
+(=) Receita Líquida
+(-) Despesas Fixas
+(-) Despesas Variáveis
+(-) Despesas Financeiras (inclui faturas de cartão pagas)
+(=) Resultado Líquido do Período
+Margem Líquida (%) = Resultado Líquido / Receita Bruta
+
+Requisitos da tela:
+- Seletor de período: mês atual, mês anterior, trimestre, ano, ou período customizado
+- Estrutura em árvore expansível: grupo (ex: Despesas Fixas) > categoria (ex: Moradia) > lançamentos individuais
+- Comparação com o período anterior, mostrando variação em % e em valor absoluto ao lado de cada grupo
+- Indicador visual verde (superávit) ou vermelho (déficit) para o Resultado Líquido do período
+- Gráfico de linha mostrando a evolução do Resultado Líquido mês a mês (últimos 12 meses)
+- Um card de resumo do DRE (Receita Líquida, Despesas Totais, Resultado Líquido, Margem Líquida) também deve aparecer resumido no Dashboard
+
+8. CONSISTÊNCIA
+Use a mesma camada dataService.ts já existente (com chamadas ao Supabase) para todas as novas operações (CRUD de cartões, faturas, e queries agregadas para o DRE), mantendo o padrão de código, tema visual e componentes shadcn/ui já usados no projeto. Garanta que todas as consultas respeitem RLS (auth.uid() = user_id), sem exibir dados de outros usuários.
+```
+
+---
+
+## O que verificar depois que o Replit aplicar
+
+1. **Teste o fluxo completo:** cadastre um cartão → lance uma despesa nele → veja se a fatura foi criada automaticamente → marque como paga → confira se apareceu como despesa financeira no DRE.
+2. **Confira o cálculo do fechamento:** lance uma compra antes e depois do dia de fechamento do cartão e veja se cada uma caiu na fatura certa.
+3. **Confira RLS:** se você tiver mais de um usuário de teste, confirme que um não vê os cartões/lançamentos do outro.
+
+Se algo não integrar direito (ex: fatura não sendo criada automaticamente, ou DRE não batendo com os lançamentos), me manda o comportamento que está vendo (com prints, se possível) que eu te ajudo a ajustar.

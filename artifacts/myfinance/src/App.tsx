@@ -14,6 +14,9 @@ import { Categories } from '@/pages/Categories';
 import { Scheduled } from '@/pages/Scheduled';
 import { Reports } from '@/pages/Reports';
 import { Settings } from '@/pages/Settings';
+import { Cards } from '@/pages/Cards';
+import { CardDetail } from '@/pages/CardDetail';
+import { Dre } from '@/pages/Dre';
 import { Login } from '@/pages/Login';
 import { Signup } from '@/pages/Signup';
 
@@ -39,7 +42,6 @@ function LoadingScreen() {
   );
 }
 
-/** Shown in development when Supabase secrets aren't set yet. */
 function SetupNeeded() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/30 p-6">
@@ -64,8 +66,8 @@ function SetupNeeded() {
           Depois de adicionar os secrets, reinicie o servidor para o app funcionar.
         </p>
         <p className="text-xs text-muted-foreground">
-          Também execute o arquivo <code className="bg-muted px-1 rounded">supabase/schema.sql</code>{' '}
-          no SQL Editor do Supabase para criar as tabelas necessárias.
+          Execute também <code className="bg-muted px-1 rounded">supabase/schema.sql</code>{' '}e{' '}
+          <code className="bg-muted px-1 rounded">supabase/schema_v2_cards.sql</code> no SQL Editor do Supabase.
         </p>
       </div>
     </div>
@@ -75,12 +77,9 @@ function SetupNeeded() {
 function AppContent() {
   const { user, loading } = useAuth();
 
-  // Secrets not configured yet — show setup instructions
   if (!isSupabaseConfigured) return <SetupNeeded />;
-
   if (loading) return <LoadingScreen />;
 
-  // Unauthenticated — show auth pages only
   if (!user) {
     return (
       <Switch>
@@ -90,7 +89,6 @@ function AppContent() {
     );
   }
 
-  // Authenticated — show the full app
   return (
     <FinanceProvider>
       <Layout>
@@ -98,7 +96,10 @@ function AppContent() {
           <Route path="/" component={Dashboard} />
           <Route path="/transactions" component={Transactions} />
           <Route path="/categories" component={Categories} />
+          <Route path="/cards/:id" component={CardDetail} />
+          <Route path="/cards" component={Cards} />
           <Route path="/scheduled" component={Scheduled} />
+          <Route path="/dre" component={Dre} />
           <Route path="/reports" component={Reports} />
           <Route path="/settings" component={Settings} />
           <Route component={NotFound} />

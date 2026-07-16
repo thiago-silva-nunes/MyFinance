@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { Category, Transaction, ScheduledTransaction } from '../data/mockData';
+import { Category, Transaction, ScheduledTransaction, CreditCard, Invoice } from '../data/mockData';
 import { dataService } from '../services/dataService';
 import { useAuth } from './AuthContext';
 
@@ -7,6 +7,8 @@ interface FinanceContextType {
   categories: Category[];
   transactions: Transaction[];
   scheduled: ScheduledTransaction[];
+  cards: CreditCard[];
+  invoices: Invoice[];
   settings: { currency: string; theme: 'light' | 'dark' };
   loading: boolean;
 
@@ -24,6 +26,11 @@ interface FinanceContextType {
   updateScheduled: (id: string, data: Partial<ScheduledTransaction>) => Promise<void>;
   deleteScheduled: (id: string) => Promise<void>;
 
+  addCard: (data: Omit<CreditCard, 'id'>) => Promise<void>;
+  updateCard: (id: string, data: Partial<CreditCard>) => Promise<void>;
+  deleteCard: (id: string) => Promise<void>;
+  payInvoice: (invoice: Invoice, card: CreditCard) => Promise<void>;
+
   updateSettings: (data: Partial<{ currency: string; theme: 'light' | 'dark' }>) => void;
   loadSampleData: () => Promise<void>;
 }
@@ -36,21 +43,16 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [scheduled, setScheduled] = useState<ScheduledTransaction[]>([]);
-  const [settings, setSettings] = useState<{ currency: string; theme: 'light' | 'dark' }>({
-    currency: 'BRL',
-    theme: 'light',
-  });
+  const [cards, setCards] = useState<CreditCard[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [settings, setSettings] = useState<{ currency: string; theme: 'light' | 'dark' }>({ currency: 'BRL', theme: 'light' });
   const [loading, setLoading] = useState(true);
 
   const applyTheme = (theme: 'light' | 'dark') => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
+    if (theme === 'dark') document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
   };
 
-  // Load settings immediately from localStorage (sync)
   useEffect(() => {
     const s = dataService.getSettings();
     setSettings(s);
@@ -59,22 +61,24 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
 
   const refreshData = useCallback(async () => {
     if (!user) {
-      setCategories([]);
-      setTransactions([]);
-      setScheduled([]);
-      setLoading(false);
+      setCategories([]); setTransactions([]); setScheduled([]);
+      setCards([]); setInvoices([]); setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const [cats, txns, sched] = await Promise.all([
+      const [cats, txns, sched, crds, invs] = await Promise.all([
         dataService.getCategories(),
         dataService.getTransactions(),
         dataService.getScheduledTransactions(),
+        dataService.getCards(),
+        dataService.getInvoices(),
       ]);
       setCategories(cats);
       setTransactions(txns);
       setScheduled(sched);
+      setCards(crds);
+      setInvoices(invs);
     } catch (err) {
       console.error('[FinanceContext] Error loading data:', err);
     } finally {
@@ -82,62 +86,34 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [user]);
 
-  useEffect(() => {
-    refreshData();
-  }, [refreshData]);
+  useEffect(() => { refreshData(); }, [refreshData]);
 
-  // ─── Category actions ────────────────────────────────────────────────────
+  // ─── Category actions ──────────────────────────────────────────────────────
 
-  const addCategory = async (data: Omit<Category, 'id'>) => {
-    await dataService.addCategory(data);
-    await refreshData();
-  };
+  const addCategory = async (data: Omit<Category, 'id'>) => { await dataService.addCategory(data); await refreshData(); };
+  const updateCategory = async (id: string, data: Partial<Category>) => { await dataService.updateCategory(id, data); await refreshData(); };
+  const deleteCategory = async (id: string) => { await dataService.deleteCategory(id); await refreshData(); };
 
-  const updateCategory = async (id: string, data: Partial<Category>) => {
-    await dataService.updateCategory(id, data);
-    await refreshData();
-  };
+  // ─── Transaction actions ───────────────────────────────────────────────────
 
-  const deleteCategory = async (id: string) => {
-    await dataService.deleteCategory(id);
-    await refreshData();
-  };
+  const addTransaction = async (data: Omit<Transaction, 'id'>) => { await dataService.addTransaction(data); await refreshData(); };
+  const updateTransaction = async (id: string, data: Partial<Transaction>) => { await dataService.updateTransaction(id, data); await refreshData(); };
+  const deleteTransaction = async (id: string) => { await dataService.deleteTransaction(id); await refreshData(); };
 
-  // ─── Transaction actions ─────────────────────────────────────────────────
+  // ─── Scheduled actions ─────────────────────────────────────────────────────
 
-  const addTransaction = async (data: Omit<Transaction, 'id'>) => {
-    await dataService.addTransaction(data);
-    await refreshData();
-  };
+  const addScheduled = async (data: Omit<ScheduledTransaction, 'id'>) => { await dataService.addScheduledTransaction(data); await refreshData(); };
+  const updateScheduled = async (id: string, data: Partial<ScheduledTransaction>) => { await dataService.updateScheduledTransaction(id, data); await refreshData(); };
+  const deleteScheduled = async (id: string) => { await dataService.deleteScheduledTransaction(id); await refreshData(); };
 
-  const updateTransaction = async (id: string, data: Partial<Transaction>) => {
-    await dataService.updateTransaction(id, data);
-    await refreshData();
-  };
+  // ─── Card actions ──────────────────────────────────────────────────────────
 
-  const deleteTransaction = async (id: string) => {
-    await dataService.deleteTransaction(id);
-    await refreshData();
-  };
+  const addCard = async (data: Omit<CreditCard, 'id'>) => { await dataService.addCard(data); await refreshData(); };
+  const updateCard = async (id: string, data: Partial<CreditCard>) => { await dataService.updateCard(id, data); await refreshData(); };
+  const deleteCard = async (id: string) => { await dataService.deleteCard(id); await refreshData(); };
+  const payInvoice = async (invoice: Invoice, card: CreditCard) => { await dataService.payInvoice(invoice, card); await refreshData(); };
 
-  // ─── Scheduled actions ───────────────────────────────────────────────────
-
-  const addScheduled = async (data: Omit<ScheduledTransaction, 'id'>) => {
-    await dataService.addScheduledTransaction(data);
-    await refreshData();
-  };
-
-  const updateScheduled = async (id: string, data: Partial<ScheduledTransaction>) => {
-    await dataService.updateScheduledTransaction(id, data);
-    await refreshData();
-  };
-
-  const deleteScheduled = async (id: string) => {
-    await dataService.deleteScheduledTransaction(id);
-    await refreshData();
-  };
-
-  // ─── Settings ────────────────────────────────────────────────────────────
+  // ─── Settings ──────────────────────────────────────────────────────────────
 
   const updateSettings = (data: Partial<{ currency: string; theme: 'light' | 'dark' }>) => {
     dataService.updateSettings(data);
@@ -146,35 +122,18 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     if (data.theme) applyTheme(data.theme);
   };
 
-  // ─── Seed data ───────────────────────────────────────────────────────────
-
-  const loadSampleData = async () => {
-    await dataService.loadSampleData();
-    await refreshData();
-  };
+  const loadSampleData = async () => { await dataService.loadSampleData(); await refreshData(); };
 
   return (
-    <FinanceContext.Provider
-      value={{
-        categories,
-        transactions,
-        scheduled,
-        settings,
-        loading,
-        refreshData,
-        addCategory,
-        updateCategory,
-        deleteCategory,
-        addTransaction,
-        updateTransaction,
-        deleteTransaction,
-        addScheduled,
-        updateScheduled,
-        deleteScheduled,
-        updateSettings,
-        loadSampleData,
-      }}
-    >
+    <FinanceContext.Provider value={{
+      categories, transactions, scheduled, cards, invoices, settings, loading,
+      refreshData,
+      addCategory, updateCategory, deleteCategory,
+      addTransaction, updateTransaction, deleteTransaction,
+      addScheduled, updateScheduled, deleteScheduled,
+      addCard, updateCard, deleteCard, payInvoice,
+      updateSettings, loadSampleData,
+    }}>
       {children}
     </FinanceContext.Provider>
   );
