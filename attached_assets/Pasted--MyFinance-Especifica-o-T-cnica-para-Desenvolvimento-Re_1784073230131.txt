@@ -1,0 +1,198 @@
+# MyFinance — Especificação Técnica para Desenvolvimento (Replit)
+
+## 1. Visão Geral
+
+**Nome do projeto:** MyFinance
+**Tipo:** Aplicação Web (SPA) para gestão de finanças pessoais
+**Objetivo:** Permitir que o usuário registre lançamentos financeiros (receitas e despesas), organize por categorias, programe lançamentos recorrentes/futuros e visualize relatórios financeiros.
+
+**Fases de dados:**
+- **Fase 1 (MVP):** dados armazenados localmente no código/estado da aplicação (mock data em arquivo JSON/JS + `localStorage` para persistência no navegador).
+- **Fase 2 (Futuro):** migração da camada de dados para **Supabase** (Postgres + Auth + API), substituindo o armazenamento local sem precisar reescrever a UI (usar uma camada de acesso a dados abstrata — ex: `dataService.js` — para facilitar a troca).
+
+---
+
+## 2. Stack Tecnológica Sugerida
+
+- **Frontend:** React (Vite) + TypeScript
+- **Estilização:** TailwindCSS
+- **Gráficos/Relatórios:** Recharts
+- **Roteamento:** React Router
+- **Estado global:** Context API ou Zustand
+- **Persistência Fase 1:** `localStorage` + arquivo `mockData.ts` com dados iniciais
+- **Persistência Fase 2:** Supabase (Postgres, Auth, Row Level Security)
+- **Ícones:** lucide-react
+
+---
+
+## 3. Funcionalidades
+
+### 3.1 Lançamentos (Transações)
+- Criar, editar e excluir lançamentos
+- Campos: descrição, valor, tipo (receita/despesa), categoria, data, forma de pagamento (opcional), status (pago/pendente), observações
+- Filtros: por período, categoria, tipo, status
+- Busca por descrição
+
+### 3.2 Categorias
+- Criar, editar e excluir categorias (ex: Alimentação, Transporte, Salário, Lazer)
+- Cada categoria tem: nome, tipo (receita/despesa), cor, ícone
+- Categorias padrão pré-cadastradas na Fase 1
+
+### 3.3 Programação Financeira (Lançamentos Recorrentes/Futuros)
+- Criar lançamentos programados (ex: aluguel todo dia 5, assinatura mensal)
+- Frequência: única vez, diária, semanal, mensal, anual
+- Data de início e (opcional) data de término
+- Geração automática dos lançamentos futuros no calendário/lista ao chegar a data
+- Alertas de contas a vencer/vencidas
+
+### 3.4 Relatórios
+- Gráfico de receitas x despesas por mês
+- Gráfico de despesas por categoria (pizza/barras)
+- Evolução do saldo ao longo do tempo (linha)
+- Comparativo mês a mês
+- Exportação simples (CSV) — opcional na Fase 1
+
+### 3.5 Dashboard
+- Saldo atual
+- Total de receitas e despesas do mês
+- Próximos lançamentos programados
+- Últimos lançamentos
+- Resumo por categoria (top 5 gastos)
+
+### 3.6 Configurações
+- Gerenciar categorias
+- Definir moeda (padrão: BRL)
+- (Fase 2) Login/cadastro de usuário via Supabase Auth
+
+---
+
+## 4. Modelo de Dados
+
+```typescript
+// Categoria
+interface Category {
+  id: string;
+  name: string;
+  type: 'income' | 'expense';
+  color: string;
+  icon: string;
+}
+
+// Lançamento
+interface Transaction {
+  id: string;
+  description: string;
+  amount: number;
+  type: 'income' | 'expense';
+  categoryId: string;
+  date: string; // ISO date
+  status: 'paid' | 'pending';
+  paymentMethod?: string;
+  notes?: string;
+  scheduledId?: string; // referência ao lançamento programado que o originou
+}
+
+// Lançamento Programado / Recorrente
+interface ScheduledTransaction {
+  id: string;
+  description: string;
+  amount: number;
+  type: 'income' | 'expense';
+  categoryId: string;
+  startDate: string;
+  endDate?: string;
+  frequency: 'once' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+  active: boolean;
+}
+```
+
+**Dados iniciais (mock):** o Replit deve criar um arquivo `src/data/mockData.ts` contendo:
+- 8 a 10 categorias padrão (receitas e despesas)
+- 15 a 20 lançamentos de exemplo distribuídos nos últimos 3 meses
+- 3 a 5 lançamentos programados de exemplo
+
+---
+
+## 5. Estrutura de Telas
+
+1. **Dashboard** (`/`) — resumo geral, gráficos rápidos, próximos vencimentos
+2. **Lançamentos** (`/transactions`) — lista completa com filtros, modal de criação/edição
+3. **Categorias** (`/categories`) — CRUD de categorias
+4. **Programação** (`/scheduled`) — CRUD de lançamentos recorrentes/futuros
+5. **Relatórios** (`/reports`) — gráficos detalhados e filtros por período
+6. **Configurações** (`/settings`) — preferências gerais
+
+---
+
+## 6. Camada de Dados (importante para a futura migração)
+
+Criar um arquivo único de acesso a dados, por exemplo `src/services/dataService.ts`, com funções como:
+
+```typescript
+getTransactions()
+addTransaction(data)
+updateTransaction(id, data)
+deleteTransaction(id)
+getCategories()
+addCategory(data)
+getScheduledTransactions()
+addScheduledTransaction(data)
+```
+
+Na Fase 1, essas funções leem/escrevem em `localStorage` (inicializado com `mockData.ts`).
+Na Fase 2, essas mesmas funções passam a chamar o **cliente Supabase** (`supabase.from('transactions').select()`, etc.), mantendo a mesma assinatura para não impactar os componentes React.
+
+**Estrutura de tabelas sugerida para o futuro Supabase:**
+- `categories` (id, name, type, color, icon, user_id)
+- `transactions` (id, description, amount, type, category_id, date, status, payment_method, notes, user_id)
+- `scheduled_transactions` (id, description, amount, type, category_id, start_date, end_date, frequency, active, user_id)
+
+---
+
+## 7. Requisitos de UI/UX
+
+- Design limpo, moderno, com tema claro e opção de tema escuro
+- Cores: verde para receitas, vermelho para despesas
+- Totalmente responsivo (mobile e desktop)
+- Feedback visual (toasts) ao criar/editar/excluir
+- Navegação lateral (sidebar) fixa no desktop, menu inferior ou hambúrguer no mobile
+
+---
+
+## 8. Prompt Final (copiar e colar no Replit)
+
+```
+Crie uma aplicação web chamada "MyFinance" para gestão de finanças pessoais, usando React + TypeScript + Vite + TailwindCSS + Recharts + React Router.
+
+A aplicação deve ter:
+1. Dashboard com saldo atual, resumo de receitas/despesas do mês, próximos lançamentos programados e últimos lançamentos.
+2. Tela de Lançamentos (transações) com CRUD completo, filtros por período/categoria/tipo/status e busca.
+3. Tela de Categorias com CRUD (nome, tipo receita/despesa, cor, ícone).
+4. Tela de Programação Financeira para lançamentos recorrentes (única vez, diária, semanal, mensal, anual), com data de início/fim.
+5. Tela de Relatórios com gráficos: receitas x despesas por mês, despesas por categoria, evolução do saldo.
+6. Tela de Configurações básicas.
+
+Os dados devem ser armazenados inicialmente em um arquivo de dados mockados (src/data/mockData.ts) e persistidos no localStorage do navegador, através de uma camada de serviço única (src/services/dataService.ts) que futuramente será substituída por chamadas ao Supabase, sem alterar os componentes.
+
+Use o seguinte modelo de dados:
+- Category: id, name, type (income/expense), color, icon
+- Transaction: id, description, amount, type, categoryId, date, status (paid/pending), paymentMethod, notes
+- ScheduledTransaction: id, description, amount, type, categoryId, startDate, endDate, frequency, active
+
+Popule os dados iniciais com 8-10 categorias, 15-20 lançamentos de exemplo dos últimos 3 meses e 3-5 lançamentos programados.
+
+Design: interface limpa e moderna, responsiva, com tema claro/escuro, cor verde para receitas e vermelho para despesas, sidebar de navegação no desktop e menu no mobile.
+```
+
+---
+
+## 9. Roteiro de Evolução (Fase 2 — Supabase)
+
+Quando quiser migrar:
+1. Criar projeto no Supabase
+2. Criar as tabelas `categories`, `transactions`, `scheduled_transactions` (com `user_id` para RLS)
+3. Ativar Supabase Auth (login/cadastro)
+4. Substituir as implementações internas de `dataService.ts` pelas chamadas ao cliente Supabase
+5. Configurar Row Level Security para que cada usuário veja apenas seus próprios dados
+
+Posso te ajudar a montar o script SQL das tabelas e a integração com Supabase quando chegar essa etapa — é só avisar.

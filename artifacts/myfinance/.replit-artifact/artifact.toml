@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "MyFinance"
+version = "1.0.0"
+id = "artifacts/myfinance"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 26082
+
+[services.development]
+run = "pnpm --filter @workspace/myfinance run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/myfinance", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/myfinance/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "26082"
+BASE_PATH = "/"
