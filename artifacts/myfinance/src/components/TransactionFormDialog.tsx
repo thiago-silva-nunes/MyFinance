@@ -12,6 +12,7 @@ import { getIcon } from '@/components/IconMap';
 import { toast } from 'sonner';
 import { Transaction } from '@/data/mockData';
 import { CreditCard, Info } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const transactionSchema = z.object({
   description: z.string().min(1, 'Descrição é obrigatória'),
@@ -135,22 +136,47 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              {/* Type toggle */}
+              {/* ── Type toggle ── */}
               <FormField control={form.control} name="type" render={({ field }) => (
                 <FormItem className="col-span-2">
                   <FormLabel>Tipo</FormLabel>
                   <div className="flex gap-2">
-                    <Button type="button" variant={field.value === 'expense' ? 'destructive' : 'outline'}
-                      className="w-full" onClick={() => { field.onChange('expense'); form.setValue('categoryId', ''); form.setValue('subcategoryId', ''); }}>
-                      Despesa
-                    </Button>
-                    <Button
+                    {/* Despesa button — destructive (red) when selected, outline when not */}
+                    <button
                       type="button"
-                      variant={field.value === 'income' ? 'default' : 'outline'}
-                      className={`w-full ${field.value === 'income' ? 'bg-success text-success-foreground hover:bg-success/90' : ''}`}
-                      onClick={() => { field.onChange('income'); form.setValue('categoryId', ''); form.setValue('subcategoryId', ''); form.setValue('paymentMethod', 'dinheiro_pix_debito'); }}>
+                      onClick={() => {
+                        field.onChange('expense');
+                        form.setValue('categoryId', '');
+                        form.setValue('subcategoryId', '');
+                      }}
+                      className={cn(
+                        'flex-1 h-9 px-3 rounded-md border text-sm font-medium transition-colors',
+                        field.value === 'expense'
+                          ? 'bg-destructive text-destructive-foreground border-destructive hover:bg-destructive/90'
+                          : 'bg-background text-foreground border-input hover:bg-muted',
+                      )}
+                    >
+                      Despesa
+                    </button>
+
+                    {/* Receita button — green when selected, outline when not */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        field.onChange('income');
+                        form.setValue('categoryId', '');
+                        form.setValue('subcategoryId', '');
+                        form.setValue('paymentMethod', 'dinheiro_pix_debito');
+                      }}
+                      className={cn(
+                        'flex-1 h-9 px-3 rounded-md border text-sm font-medium transition-colors',
+                        field.value === 'income'
+                          ? 'bg-green-500 text-white border-green-500 hover:bg-green-600'
+                          : 'bg-background text-foreground border-input hover:bg-muted',
+                      )}
+                    >
                       Receita
-                    </Button>
+                    </button>
                   </div>
                 </FormItem>
               )} />
@@ -230,17 +256,17 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                   <FormItem className="col-span-2">
                     <FormLabel>Subcategoria <span className="text-muted-foreground font-normal">(opcional)</span></FormLabel>
                     <Select
-                        onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
-                        value={field.value && field.value !== '' ? field.value : '__none__'}
-                      >
-                        <FormControl><SelectTrigger><SelectValue placeholder="Selecione uma subcategoria" /></SelectTrigger></FormControl>
-                        <SelectContent>
-                          <SelectItem value="__none__">— Nenhuma —</SelectItem>
-                          {availableSubcategories.map((sub) => (
-                            <SelectItem key={sub.id} value={sub.id}>{sub.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
+                      value={field.value && field.value !== '' ? field.value : '__none__'}
+                    >
+                      <FormControl><SelectTrigger><SelectValue placeholder="Selecione uma subcategoria" /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        <SelectItem value="__none__">— Nenhuma —</SelectItem>
+                        {availableSubcategories.map((sub) => (
+                          <SelectItem key={sub.id} value={sub.id}>{sub.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -251,8 +277,10 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                 <FormField control={form.control} name="paymentMethod" render={({ field }) => (
                   <FormItem className="col-span-2">
                     <FormLabel>Forma de pagamento</FormLabel>
-                    <Select onValueChange={(v) => { field.onChange(v); if (v !== 'cartao_credito') { form.setValue('cardId', ''); form.setValue('purchaseType', 'avista'); } }}
-                      value={field.value}>
+                    <Select onValueChange={(v) => {
+                      field.onChange(v);
+                      if (v !== 'cartao_credito') { form.setValue('cardId', ''); form.setValue('purchaseType', 'avista'); }
+                    }} value={field.value}>
                       <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                       <SelectContent>
                         <SelectItem value="dinheiro_pix_debito">Dinheiro / PIX / Débito</SelectItem>

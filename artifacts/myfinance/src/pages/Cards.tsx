@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useFinance } from '@/context/FinanceContext';
+import { usePrivacy } from '@/context/PrivacyContext';
 import { formatCurrency } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,9 +17,10 @@ const BRAND_LABELS: Record<string, string> = {
   visa: 'VISA', mastercard: 'Mastercard', elo: 'Elo', amex: 'Amex', other: '●●●●',
 };
 
-function VisualCard({ card, usedAmount }: { card: CreditCardType; usedAmount: number }) {
+function VisualCard({ card, usedAmount, hideValues }: { card: CreditCardType; usedAmount: number; hideValues: boolean }) {
   const pct = card.limit > 0 ? Math.min((usedAmount / card.limit) * 100, 100) : 0;
   const barColor = pct > 80 ? 'bg-red-400' : pct > 50 ? 'bg-yellow-400' : 'bg-white/60';
+  const fmt = (n: number) => hideValues ? 'R$ ••••••' : formatCurrency(n);
 
   return (
     <div className="relative rounded-2xl overflow-hidden aspect-[86/54] w-full select-none shadow-xl"
@@ -45,8 +47,8 @@ function VisualCard({ card, usedAmount }: { card: CreditCardType; usedAmount: nu
       {/* Limit bar */}
       <div className="absolute bottom-3 left-4 right-4 space-y-0.5">
         <div className="flex justify-between text-white/70 text-[9px]">
-          <span>{formatCurrency(usedAmount)} usado</span>
-          <span>lim. {formatCurrency(card.limit)}</span>
+          <span>{fmt(usedAmount)} usado</span>
+          <span>lim. {fmt(card.limit)}</span>
         </div>
         <div className="w-full h-1.5 rounded-full bg-white/20">
           <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
@@ -58,6 +60,9 @@ function VisualCard({ card, usedAmount }: { card: CreditCardType; usedAmount: nu
 
 export const Cards = () => {
   const { cards, invoices, deleteCard } = useFinance();
+  const { hideValues } = usePrivacy();
+  const mask = (n: number) => hideValues ? 'R$ ••••••' : formatCurrency(n);
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editCard, setEditCard] = useState<CreditCardType | null>(null);
 
@@ -115,16 +120,16 @@ export const Cards = () => {
                 <Card className="hover-elevate transition-all">
                   <CardContent className="p-4 space-y-4">
                     {/* Visual card */}
-                    <VisualCard card={card} usedAmount={used} />
+                    <VisualCard card={card} usedAmount={used} hideValues={hideValues} />
 
                     {/* Stats */}
                     <div className="space-y-2">
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Disponível</span>
-                        <span className="font-semibold">{formatCurrency(Math.max(0, card.limit - used))}</span>
+                        <span className="font-semibold">{mask(Math.max(0, card.limit - used))}</span>
                       </div>
-                      <Progress value={pct} className="h-2" />
-                      {pct > 80 && (
+                      <Progress value={hideValues ? 0 : pct} className="h-2" />
+                      {pct > 80 && !hideValues && (
                         <div className="flex items-center gap-1 text-destructive text-xs">
                           <AlertTriangle className="w-3 h-3" />
                           Mais de 80% do limite utilizado

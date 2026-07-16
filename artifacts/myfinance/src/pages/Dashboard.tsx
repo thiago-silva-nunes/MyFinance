@@ -1,96 +1,190 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useFinance } from '@/context/FinanceContext';
+import { usePrivacy } from '@/context/PrivacyContext';
 import { formatCurrency, formatShortDate } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
 import { getIcon } from '@/components/IconMap';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { ArrowDown, ArrowUp, Wallet, Bell, Plus, CreditCard, AlertTriangle, TrendingUp, TrendingDown } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
+import { ArrowDown, ArrowUp, TrendingUp as TrendingBalance, Bell, Plus, CreditCard, AlertTriangle, TrendingUp, TrendingDown, CalendarRange } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { TransactionFormDialog } from '@/components/TransactionFormDialog';
 import { Link } from 'wouter';
 import { cn } from '@/lib/utils';
 
+// ─── Period helpers ────────────────────────────────────────────────────────────
+
+type DashPeriod = 'current_month' | 'prev_month' | 'last_3_months' | 'year' | 'custom_month';
+
+const PERIOD_OPTIONS: { value: DashPeriod; label: string }[] = [
+  { value: 'current_month', label: 'Este mês' },
+  { value: 'prev_month',    label: 'Mês passado' },
+  { value: 'last_3_months', label: 'Últimos 3 meses' },
+  { value: 'year',          label: 'Este ano' },
+  { value: 'custom_month',  label: 'Mês específico' },
+];
+
+function pad(n: number) { return String(n).padStart(2, '0'); }
+function lastDay(y: number, m: number) { return new Date(y, m, 0).getDate(); }
+
+function getPeriodRange(period: DashPeriod, customMonth: string): { start: string; end: string; label: string } {
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth() + 1;
+  switch (period) {
+    case 'current_month':
+      return { start: `${y}-${pad(m)}-01`, end: `${y}-${pad(m)}-${lastDay(y, m)}`, label: 'Este mês' };
+    case 'prev_month': {
+      const pm = m === 1 ? 12 : m - 1, py = m === 1 ? y - 1 : y;
+      return { start: `${py}-${pad(pm)}-01`, end: `${py}-${pad(pm)}-${lastDay(py, pm)}`, label: 'Mês passado' };
+    }
+    case 'last_3_months': {
+      // Go back 2 full months from current
+      const totalM = y * 12 + (m - 1) - 2;
+      const sy = Math.floor(totalM / 12), sm = (totalM % 12) + 1;
+      return { start: `${sy}-${pad(sm)}-01`, end: `${y}-${pad(m)}-${lastDay(y, m)}`, label: 'Últimos 3 meses' };
+    }
+    case 'year':
+      return { start: `${y}-01-01`, end: `${y}-12-31`, label: `${y}` };
+    case 'custom_month': {
+      if (customMonth) {
+        const [cy, cm] = customMonth.split('-').map(Number);
+        return { start: `${cy}-${pad(cm)}-01`, end: `${cy}-${pad(cm)}-${lastDay(cy, cm)}`, label: customMonth };
+      }
+      return { start: `${y}-${pad(m)}-01`, end: `${y}-${pad(m)}-${lastDay(y, m)}`, label: 'Este mês' };
+    }
+  }
+}
+
+// ─── Custom chart label ───────────────────────────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function ValueLabel(props: any) {
+  const { x, y, width, height, value, hideValues } = props;
+  if (value === undefined || value === null) return null;
+  const text = hideValues ? '••••••' : formatCurrency(value as number);
+  return (
+    <text
+      x={(x as number) + (width as number) + 6}
+      y={(y as number) + (height as number) / 2}
+      fill="hsl(var(--foreground))"
+      fontSize={11}
+      dominantBaseline="middle"
+    >
+      {text}
+    </text>
+  );
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export const Dashboard = () => {
   const { transactions, scheduled, categories, cards, invoices } = useFinance();
+  const { hideValues } = usePrivacy();
   const [isTransactionFormOpen, setIsTransactionFormOpen] = React.useState(false);
+  const [period, setPeriod] = useState<DashPeriod>('current_month');
+  const [customMonth, setCustomMonth] = useState('');
+
+  const mask = (amount: number) => hideValues ? 'R$ ••••••' : formatCurrency(amount);
+
+  const range = useMemo(() => getPeriodRange(period, customMonth), [period, customMonth]);
 
   const {
-    currentMonthIncome, currentMonthExpense, balance,
-    topCategories, recentTransactions, upcomingScheduled
+    periodIncome, periodExpense, periodBalance,
+    topCategories, recentTransactions, upcomingScheduled,
   } = useMemo(() => {
-    const now = new Date();
-    const cm = now.getMonth(), cy = now.getFullYear();
-
-    const monthTxs = transactions.filter(t => {
-      const d = new Date(t.date);
-      return d.getMonth() === cm && d.getFullYear() === cy && t.status === 'paid';
-    });
+    // Use direct string comparison to avoid timezone issues with new Date()
+    const periodTxs = transactions.filter(t =>
+      t.date >= range.start && t.date <= range.end && t.status === 'paid',
+    );
 
     let income = 0, expense = 0;
-    monthTxs.forEach(t => { if (t.type === 'income') income += t.amount; else expense += t.amount; });
+    periodTxs.forEach(t => { if (t.type === 'income') income += t.amount; else expense += t.amount; });
 
-    let totalBalance = 0;
-    transactions.filter(t => t.status === 'paid').forEach(t => {
-      if (t.type === 'income') totalBalance += t.amount; else totalBalance -= t.amount;
-    });
-
+    // Group expenses by category, summing amounts
     const catTotals: Record<string, number> = {};
-    monthTxs.filter(t => t.type === 'expense').forEach(t => {
+    periodTxs.filter(t => t.type === 'expense').forEach(t => {
+      if (!t.categoryId) return;
       catTotals[t.categoryId] = (catTotals[t.categoryId] || 0) + t.amount;
     });
     const topCat = Object.entries(catTotals)
-      .map(([id, amount]) => { const cat = categories.find(c => c.id === id); return { id, name: cat?.name || 'Desconhecida', amount, color: cat?.color || '#cbd5e1' }; })
-      .sort((a, b) => b.amount - a.amount).slice(0, 5);
+      .map(([id, amount]) => {
+        const cat = categories.find(c => c.id === id);
+        return { id, name: cat?.name || 'Desconhecida', amount, color: cat?.color || '#cbd5e1' };
+      })
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 5);
 
-    const recent = [...transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 5);
+    // Recent transactions in the selected period, sorted by date desc
+    const recent = transactions
+      .filter(t => t.date >= range.start && t.date <= range.end)
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 5);
 
-    const upcoming = scheduled.filter(s => s.active).slice(0, 3);
+    // Upcoming scheduled items within selected period.
+    // For recurring items: show if they were/are active during the period
+    // (startDate <= range.end and either no endDate or endDate >= range.start).
+    // For once-off items: show only if startDate is within the period.
+    const upcoming = scheduled
+      .filter(s => {
+        if (!s.active) return false;
+        if (s.frequency === 'once') {
+          return s.startDate >= range.start && s.startDate <= range.end;
+        }
+        // Recurring: overlaps with period
+        const afterStart = s.startDate <= range.end;
+        const beforeEnd = !s.endDate || s.endDate >= range.start;
+        return afterStart && beforeEnd;
+      })
+      .sort((a, b) => a.startDate.localeCompare(b.startDate))
+      .slice(0, 3);
 
-    return { currentMonthIncome: income, currentMonthExpense: expense, balance: totalBalance, topCategories: topCat, recentTransactions: recent, upcomingScheduled: upcoming };
-  }, [transactions, scheduled, categories]);
+    return {
+      periodIncome: income,
+      periodExpense: expense,
+      periodBalance: income - expense,
+      topCategories: topCat,
+      recentTransactions: recent,
+      upcomingScheduled: upcoming,
+    };
+  }, [transactions, scheduled, categories, range]);
 
-  // Credit card summary
+  // Credit card summary — total used and high-usage alerts are always current state
+  // (reflects live debt). Period filter applies to "due within period" invoice list.
   const { totalUsed, openInvoicesCount, highUsageCards, dueSoonInvoices } = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
-    const in3Days = new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0];
-
-    let used = 0;
-    let openCount = 0;
+    let used = 0, openCount = 0;
     const highUsage: typeof cards = [];
-    const dueSoon: Array<{ card: typeof cards[0]; invoice: typeof invoices[0] }> = [];
 
     for (const card of cards) {
       const cardInvoices = invoices.filter(inv => inv.cardId === card.id && inv.status !== 'paid');
       const cardUsed = cardInvoices.reduce((s, inv) => s + inv.totalAmount, 0);
       used += cardUsed;
-      openCount += cardInvoices.filter(inv => inv.status !== 'paid').length;
-
+      openCount += cardInvoices.length;
       if (card.limit > 0 && (cardUsed / card.limit) > 0.8) highUsage.push(card);
+    }
 
-      for (const inv of cardInvoices) {
-        if (inv.dueDate <= in3Days && inv.dueDate >= today && inv.status !== 'paid') {
-          dueSoon.push({ card, invoice: inv });
-        }
+    // "Due soon" invoices: those whose dueDate falls within the selected period range
+    const dueSoon: Array<{ card: typeof cards[0]; invoice: typeof invoices[0] }> = [];
+    for (const inv of invoices) {
+      if (inv.status === 'paid') continue;
+      if (inv.dueDate >= range.start && inv.dueDate <= range.end) {
+        const card = cards.find(c => c.id === inv.cardId);
+        if (card) dueSoon.push({ card, invoice: inv });
       }
     }
 
     return { totalUsed: used, openInvoicesCount: openCount, highUsageCards: highUsage, dueSoonInvoices: dueSoon };
-  }, [cards, invoices]);
+  }, [cards, invoices, range]);
 
-  // DRE quick summary for current month
+  // DRE quick summary for selected period
   const dreQuickSummary = useMemo(() => {
-    const now = new Date();
-    const y = now.getFullYear(), m = String(now.getMonth() + 1).padStart(2, '0');
-    const start = `${y}-${m}-01`;
-    const end = `${y}-${m}-${new Date(y, now.getMonth() + 1, 0).getDate()}`;
     const catMap = new Map(categories.map(c => [c.id, c]));
-
     let receitaBruta = 0, deducoes = 0, despesas = 0;
     for (const tx of transactions) {
-      if (tx.date < start || tx.date > end) continue;
+      if (tx.date < range.start || tx.date > range.end) continue;
       const cat = catMap.get(tx.categoryId);
       if (!cat) continue;
       const g = cat.dreGroup ?? (cat.type === 'income' ? 'receita' : 'despesa_variavel');
@@ -101,12 +195,15 @@ export const Dashboard = () => {
     const resultado = (receitaBruta - deducoes) - despesas;
     const margem = receitaBruta > 0 ? (resultado / receitaBruta) * 100 : 0;
     return { receitaBruta, deducoes, despesas, resultado, margem };
-  }, [transactions, categories]);
+  }, [transactions, categories, range]);
 
   const hasAlerts = highUsageCards.length > 0 || dueSoonInvoices.length > 0;
+  const isCurrentMonth = period === 'current_month';
 
   return (
     <div className="space-y-6 pb-20 md:pb-0">
+
+      {/* Header + period selector */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Visão Geral</h1>
@@ -115,6 +212,35 @@ export const Dashboard = () => {
         <Button onClick={() => setIsTransactionFormOpen(true)} className="w-full md:w-auto shadow-sm hover-elevate">
           <Plus className="w-4 h-4 mr-2" /> Nova Transação
         </Button>
+      </div>
+
+      {/* Period filter */}
+      <div className="flex flex-wrap items-center gap-2 bg-card border rounded-xl px-4 py-3">
+        <CalendarRange className="w-4 h-4 text-muted-foreground shrink-0" />
+        <span className="text-sm text-muted-foreground mr-1">Período:</span>
+        <Select value={period} onValueChange={(v) => setPeriod(v as DashPeriod)}>
+          <SelectTrigger className="w-44 h-8 text-sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PERIOD_OPTIONS.map(o => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {period === 'custom_month' && (
+          <Input
+            type="month"
+            value={customMonth}
+            onChange={e => setCustomMonth(e.target.value)}
+            className="w-40 h-8 text-sm"
+          />
+        )}
+        {range.label && (
+          <span className="text-xs text-muted-foreground ml-1 hidden sm:block">
+            {range.start} → {range.end}
+          </span>
+        )}
       </div>
 
       {/* Alerts */}
@@ -133,7 +259,7 @@ export const Dashboard = () => {
             {dueSoonInvoices.map(({ card, invoice }) => (
               <div key={invoice.id} className="text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-orange-500" />
-                Fatura <strong>{card.name}</strong> vence em {formatShortDate(invoice.dueDate)} — {formatCurrency(invoice.totalAmount)}
+                Fatura <strong>{card.name}</strong> vence em {formatShortDate(invoice.dueDate)} — {mask(invoice.totalAmount)}
               </div>
             ))}
           </CardContent>
@@ -143,9 +269,36 @@ export const Dashboard = () => {
       {/* Summary cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
-          { title: 'Saldo Atual', value: balance, sub: 'Acumulado total', icon: Wallet, colorClass: 'text-primary', borderClass: 'border-l-primary/50', bgClass: 'bg-primary/10', delay: 0.1 },
-          { title: 'Receitas (Mês)', value: currentMonthIncome, sub: 'Este mês', icon: ArrowUp, colorClass: 'text-success', borderClass: 'border-l-success/50', bgClass: 'bg-success/10', delay: 0.2 },
-          { title: 'Despesas (Mês)', value: currentMonthExpense, sub: 'Este mês', icon: ArrowDown, colorClass: 'text-destructive', borderClass: 'border-l-destructive/50', bgClass: 'bg-destructive/10', delay: 0.3 },
+          {
+            title: isCurrentMonth ? 'Resultado do Mês' : `Resultado (${range.label})`,
+            value: periodBalance,
+            sub: periodBalance >= 0 ? 'Sobrou no período' : 'Deficit no período',
+            icon: TrendingBalance,
+            colorClass: periodBalance >= 0 ? 'text-primary' : 'text-destructive',
+            borderClass: periodBalance >= 0 ? 'border-l-primary/50' : 'border-l-destructive/50',
+            bgClass: periodBalance >= 0 ? 'bg-primary/10' : 'bg-destructive/10',
+            delay: 0.1,
+          },
+          {
+            title: 'Receitas',
+            value: periodIncome,
+            sub: range.label,
+            icon: ArrowUp,
+            colorClass: 'text-success',
+            borderClass: 'border-l-success/50',
+            bgClass: 'bg-success/10',
+            delay: 0.2,
+          },
+          {
+            title: 'Despesas',
+            value: periodExpense,
+            sub: range.label,
+            icon: ArrowDown,
+            colorClass: 'text-destructive',
+            borderClass: 'border-l-destructive/50',
+            bgClass: 'bg-destructive/10',
+            delay: 0.3,
+          },
         ].map(({ title, value, sub, icon: Icon, colorClass, borderClass, bgClass, delay }) => (
           <motion.div key={title} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay }}>
             <Card className={`hover-elevate transition-all border-l-4 ${borderClass}`}>
@@ -154,7 +307,7 @@ export const Dashboard = () => {
                 <div className={`${bgClass} p-2 rounded-full`}><Icon className={`w-4 h-4 ${colorClass}`} /></div>
               </CardHeader>
               <CardContent>
-                <div className={`text-2xl font-bold ${colorClass}`}>{formatCurrency(value)}</div>
+                <div className={`text-2xl font-bold ${colorClass}`}>{mask(value)}</div>
                 <p className="text-xs text-muted-foreground mt-1">{sub}</p>
               </CardContent>
             </Card>
@@ -172,7 +325,7 @@ export const Dashboard = () => {
                 {dreQuickSummary.resultado >= 0
                   ? <TrendingUp className="w-4 h-4 text-success" />
                   : <TrendingDown className="w-4 h-4 text-destructive" />}
-                DRE — Mês Atual
+                DRE — {range.label}
               </CardTitle>
               <Link href="/dre"><Button variant="ghost" size="sm" className="text-xs">Ver completo</Button></Link>
             </div>
@@ -180,22 +333,22 @@ export const Dashboard = () => {
           <CardContent className="space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Receita Líquida</span>
-              <span className="font-medium text-success">{formatCurrency(dreQuickSummary.receitaBruta - dreQuickSummary.deducoes)}</span>
+              <span className="font-medium text-success">{mask(dreQuickSummary.receitaBruta - dreQuickSummary.deducoes)}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Total Despesas</span>
-              <span className="font-medium text-destructive">{formatCurrency(dreQuickSummary.despesas)}</span>
+              <span className="font-medium text-destructive">{mask(dreQuickSummary.despesas)}</span>
             </div>
             <div className="flex justify-between text-sm font-semibold border-t pt-2 mt-2">
               <span>Resultado</span>
               <span className={dreQuickSummary.resultado >= 0 ? 'text-success' : 'text-destructive'}>
-                {formatCurrency(dreQuickSummary.resultado)}
+                {mask(dreQuickSummary.resultado)}
               </span>
             </div>
             <div className="flex justify-between text-xs text-muted-foreground">
               <span>Margem líquida</span>
               <span className={dreQuickSummary.margem >= 0 ? 'text-success' : 'text-destructive'}>
-                {dreQuickSummary.margem.toFixed(1)}%
+                {hideValues ? '••••' : `${dreQuickSummary.margem.toFixed(1)}%`}
               </span>
             </div>
           </CardContent>
@@ -215,7 +368,7 @@ export const Dashboard = () => {
             <CardContent className="space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Total utilizado</span>
-                <span className="font-bold">{formatCurrency(totalUsed)}</span>
+                <span className="font-bold">{mask(totalUsed)}</span>
               </div>
               <div className="flex justify-between text-xs text-muted-foreground">
                 <span>{openInvoicesCount} fatura{openInvoicesCount !== 1 ? 's' : ''} em aberto</span>
@@ -226,7 +379,7 @@ export const Dashboard = () => {
                   {dueSoonInvoices.slice(0, 2).map(({ card, invoice }) => (
                     <div key={invoice.id} className="flex justify-between text-xs bg-amber-50 dark:bg-amber-950/20 rounded px-2 py-1.5">
                       <span className="text-muted-foreground">{card.name} — {formatShortDate(invoice.dueDate)}</span>
-                      <span className="font-medium">{formatCurrency(invoice.totalAmount)}</span>
+                      <span className="font-medium">{mask(invoice.totalAmount)}</span>
                     </div>
                   ))}
                 </div>
@@ -240,30 +393,64 @@ export const Dashboard = () => {
         {/* Top categories chart */}
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Maiores Gastos do Mês</CardTitle>
-            <CardDescription>Top 5 categorias onde você mais gastou neste mês</CardDescription>
+            <CardTitle>Maiores Gastos</CardTitle>
+            <CardDescription>Top 5 categorias com maiores despesas — {range.label}</CardDescription>
           </CardHeader>
           <CardContent>
             {topCategories.length > 0 ? (
-              <div className="h-[280px] w-full mt-4">
+              <div className="h-[260px] w-full mt-2">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={topCategories} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="hsl(var(--border))" />
-                    <XAxis type="number" tickFormatter={(v) => `R$ ${v}`} stroke="hsl(var(--muted-foreground))" fontSize={12} />
-                    <YAxis dataKey="name" type="category" width={100} stroke="hsl(var(--muted-foreground))" fontSize={12} />
-                    <Tooltip formatter={(v: number) => formatCurrency(v)}
-                      contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
-                      itemStyle={{ color: 'hsl(var(--foreground))' }} />
-                    <Bar dataKey="amount" radius={[0, 4, 4, 0]} barSize={24}>
-                      {topCategories.map((entry, i) => <Cell key={`cell-${i}`} fill={entry.color} />)}
+                  <BarChart
+                    data={topCategories}
+                    layout="vertical"
+                    margin={{ top: 4, right: hideValues ? 80 : 120, left: 8, bottom: 4 }}
+                  >
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      horizontal={false}
+                      vertical={true}
+                      stroke="hsl(var(--border))"
+                    />
+                    <XAxis
+                      type="number"
+                      tickFormatter={(v) => hideValues ? '••••' : `R$${(v / 1000).toFixed(0)}k`}
+                      stroke="hsl(var(--muted-foreground))"
+                      fontSize={11}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      dataKey="name"
+                      type="category"
+                      width={90}
+                      stroke="hsl(var(--muted-foreground))"
+                      fontSize={12}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <Tooltip
+                      formatter={(v: number) => [hideValues ? 'R$ ••••••' : formatCurrency(v), 'Gasto']}
+                      contentStyle={{
+                        backgroundColor: 'hsl(var(--card))',
+                        borderColor: 'hsl(var(--border))',
+                        borderRadius: '8px',
+                      }}
+                      itemStyle={{ color: 'hsl(var(--foreground))' }}
+                      cursor={{ fill: 'hsl(var(--muted))', opacity: 0.5 }}
+                    />
+                    <Bar dataKey="amount" radius={[0, 6, 6, 0]} barSize={28} isAnimationActive={true}>
+                      {topCategories.map((entry, i) => (
+                        <Cell key={`cell-${i}`} fill={entry.color} fillOpacity={0.9} />
+                      ))}
+                      <LabelList content={(props) => <ValueLabel {...props} hideValues={hideValues} />} />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             ) : (
-              <div className="h-[280px] flex items-center justify-center text-muted-foreground flex-col">
-                <Wallet className="w-12 h-12 mb-4 opacity-20" />
-                <p>Nenhum gasto registrado neste mês.</p>
+              <div className="h-[260px] flex items-center justify-center text-muted-foreground flex-col">
+                <ArrowDown className="w-12 h-12 mb-4 opacity-20" />
+                <p>Nenhum gasto registrado neste período.</p>
               </div>
             )}
           </CardContent>
@@ -285,7 +472,7 @@ export const Dashboard = () => {
                     <p className="text-xs text-muted-foreground">{s.frequency}</p>
                   </div>
                   <p className={s.type === 'expense' ? 'text-destructive font-medium' : 'text-success font-medium'}>
-                    {formatCurrency(s.amount)}
+                    {mask(s.amount)}
                   </p>
                 </div>
               )) : <p className="text-sm text-muted-foreground text-center py-4">Nenhuma conta próxima.</p>}
@@ -313,13 +500,15 @@ export const Dashboard = () => {
                     </div>
                     <div className="text-right">
                       <p className={`text-sm font-medium ${t.type === 'income' ? 'text-success' : ''}`}>
-                        {t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount)}
+                        {t.type === 'income' ? '+' : '-'}{mask(t.amount)}
                       </p>
-                      {t.status === 'pending' && <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">Pendente</Badge>}
+                      {t.status === 'pending' && (
+                        <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">Pendente</Badge>
+                      )}
                     </div>
                   </div>
                 );
-              }) : <p className="text-sm text-muted-foreground text-center py-4">Nenhuma transação recente.</p>}
+              }) : <p className="text-sm text-muted-foreground text-center py-4">Nenhuma transação neste período.</p>}
             </CardContent>
           </Card>
         </div>

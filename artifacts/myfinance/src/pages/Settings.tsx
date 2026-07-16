@@ -6,13 +6,22 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { Moon, Sun, DollarSign, Database, LogOut, Loader2, Cloud } from 'lucide-react';
+import { Moon, Sun, DollarSign, Database, LogOut, Loader2, Cloud, Bell, BellOff, BellRing } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  isNotificationSupported,
+  getNotificationPermission,
+  requestNotificationPermission,
+  checkAndNotify,
+  registerPeriodicSync,
+} from '@/services/notificationService';
 
 export const Settings = () => {
-  const { settings, updateSettings, loadSampleData } = useFinance();
+  const { settings, updateSettings, loadSampleData, scheduled, invoices, cards } = useFinance();
   const { user, signOut } = useAuth();
   const [seedLoading, setSeedLoading] = useState(false);
+  const [notifPermission, setNotifPermission] = useState<string>(() => getNotificationPermission());
+  const [notifLoading, setNotifLoading] = useState(false);
 
   const handleThemeChange = (isDark: boolean) => {
     updateSettings({ theme: isDark ? 'dark' : 'light' });
@@ -44,6 +53,42 @@ export const Settings = () => {
     }
   };
 
+  const handleRequestNotifications = async () => {
+    if (!isNotificationSupported()) {
+      toast.error('Notificações não são suportadas neste navegador.');
+      return;
+    }
+    setNotifLoading(true);
+    try {
+      const perm = await requestNotificationPermission();
+      setNotifPermission(perm);
+      if (perm === 'granted') {
+        toast.success('Notificações ativadas! Você receberá avisos sobre vencimentos.');
+        // Fire a quick check immediately
+        await checkAndNotify(scheduled, invoices, cards);
+      } else if (perm === 'denied') {
+        toast.error('Permissão negada. Para ativar, altere as configurações do seu navegador.');
+      }
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao solicitar permissão');
+    } finally {
+      setNotifLoading(false);
+    }
+  };
+
+  const handleTestNotification = async () => {
+    if (notifPermission !== 'granted') return;
+    await checkAndNotify(scheduled, invoices, cards);
+    toast.info('Verificação de notificações executada. Se houver vencimentos próximos, você verá as notificações.');
+  };
+
+  // If permission is already granted, (re-)register periodic sync on mount
+  useEffect(() => {
+    if (notifPermission === 'granted') {
+      registerPeriodicSync().catch(() => {});
+    }
+  }, [notifPermission]);
+
   useEffect(() => {
     if (settings.theme === 'dark') {
       document.documentElement.classList.add('dark');
@@ -51,6 +96,9 @@ export const Settings = () => {
       document.documentElement.classList.remove('dark');
     }
   }, [settings.theme]);
+
+  const notifIcon = notifPermission === 'granted' ? BellRing : notifPermission === 'denied' ? BellOff : Bell;
+  const NotifIcon = notifIcon;
 
   return (
     <div className="space-y-6 pb-20 md:pb-0 max-w-3xl">
@@ -113,6 +161,70 @@ export const Settings = () => {
                 </Select>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Notificações */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Notificações</CardTitle>
+            <CardDescription>
+              Receba alertas no navegador sobre vencimentos de faturas e lançamentos programados.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!isNotificationSupported() ? (
+              <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
+                <BellOff className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium">Não suportado</p>
+                  <p className="text-xs text-muted-foreground">Este navegador não suporta notificações push.</p>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-start gap-3 p-3 bg-muted/50 rounded-lg">
+                  <NotifIcon className={`w-5 h-5 shrink-0 mt-0.5 ${notifPermission === 'granted' ? 'text-success' : notifPermission === 'denied' ? 'text-destructive' : 'text-muted-foreground'}`} />
+                  <div>
+                    <p className="text-sm font-medium">
+                      {notifPermission === 'granted' && 'Notificações ativas'}
+                      {notifPermission === 'denied' && 'Notificações bloqueadas'}
+                      {notifPermission === 'default' && 'Notificações desativadas'}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {notifPermission === 'granted' && 'Você receberá alertas de vencimentos até 2 dias antes.'}
+                      {notifPermission === 'denied' && 'Vá em Configurações do Navegador → Notificações para desbloquear.'}
+                      {notifPermission === 'default' && 'Ative para receber avisos de faturas e lançamentos programados.'}
+                    </p>
+                  </div>
+                </div>
+
+                {notifPermission !== 'granted' && notifPermission !== 'denied' && (
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleRequestNotifications}
+                    disabled={notifLoading}
+                  >
+                    {notifLoading ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Aguardando permissão...</>
+                    ) : (
+                      <><Bell className="w-4 h-4 mr-2" /> Ativar Notificações</>
+                    )}
+                  </Button>
+                )}
+
+                {notifPermission === 'granted' && (
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={handleTestNotification}
+                  >
+                    <BellRing className="w-4 h-4 mr-2" /> Verificar vencimentos agora
+                  </Button>
+                )}
+              </>
+            )}
           </CardContent>
         </Card>
 

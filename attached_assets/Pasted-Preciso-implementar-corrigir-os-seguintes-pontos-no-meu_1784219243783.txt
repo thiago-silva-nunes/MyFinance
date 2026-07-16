@@ -1,0 +1,50 @@
+Preciso implementar/corrigir os seguintes pontos no meu app de finanças:
+1. BUG — Botão "Despesa" não mostra estado selecionado corretamente
+No TransactionFormDialog.tsx, ao selecionar "Despesa", o botão deveria ficar visualmente destacado (vermelho sólido) e o botão "Receita" deveria voltar ao estado neutro (outline, sem verde). Hoje isso não está acontecendo de forma consistente — verifique se a lógica condicional de classes CSS dos dois botões está aplicada corretamente nos dois sentidos (type === 'expense' E type === 'income'), não só em um deles. Teste alternando entre Despesa e Receita várias vezes para confirmar que o destaque visual muda corretamente a cada clique.
+2. BUG — Gráfico "Maiores Gastos do Mês" não está agrupando por categoria
+Nos dados atuais, o gráfico mostra a mesma categoria repetida várias vezes (ex: "Moradia" aparece 3 vezes, "Saúde" 2 vezes) ao invés de somar os gastos de cada categoria e mostrar um valor único por categoria (Top 5). Corrija a query/lógica de agregação para agrupar (group by) por category_id/nome da categoria, somando o amount de todas as transações daquela categoria no mês, e então pegar as 5 com maior soma.
+3. MELHORIA — Gráfico da página inicial mais uniforme
+O gráfico de barras "Maiores Gastos do Mês" está com aparência pouco polida (cores alternando sem padrão claro, barras de tamanhos que não comunicam bem a proporção). Melhore o design:
+
+Use uma cor consistente por categoria (ex: a mesma cor cadastrada na categoria, se existir) ou uma paleta de cores harmônica e uniforme para as 5 barras.
+Garanta espaçamento e altura de barra consistentes.
+Adicione o valor formatado (R$) no final ou dentro de cada barra para leitura rápida.
+Mantenha responsivo para diferentes tamanhos de tela.
+
+4. FEATURE — Filtro/seleção de dados no dashboard da página inicial
+Adicione um seletor (dropdown ou tabs) no topo da página inicial que permita ao usuário escolher o período/dados exibidos nos gráficos e cards (ex: "Este mês", "Mês passado", "Últimos 3 meses", "Este ano", ou um seletor de mês/ano específico). Ao mudar a seleção, todos os componentes da home (gráfico de maiores gastos, próximos vencimentos, transações recentes, totais) devem atualizar de acordo com o período escolhido.
+5. FEATURE — Notificações de lançamentos (navegador/desktop e mobile)
+Implemente notificações push do navegador (Web Push API / Notification API) para avisar o usuário sobre:
+
+Lançamentos programados/recorrentes próximos do vencimento (ex: 1-2 dias antes).
+Faturas de cartão próximas do vencimento.
+Peça permissão de notificação ao usuário (Notification.requestPermission()) em um momento apropriado da UI (ex: um botão "Ativar notificações" nas configurações, não popup forçado ao abrir o app).
+Como é uma web app, essas notificações devem funcionar tanto no navegador desktop quanto no navegador mobile (Android/iOS PWA), desde que o usuário tenha concedido permissão e, se necessário, instalado o app como PWA.
+Se o projeto ainda não tiver um Service Worker configurado, crie um, pois é pré-requisito para notificações funcionarem mesmo com o site fechado/em segundo plano.
+
+6. BUG — Parcelamento no cartão de crédito não está funcionando
+O banco já tem as colunas installment_group_id, installment_number, installment_total na tabela transactions (migration já rodada). Porém o formulário (TransactionFormDialog.tsx) ainda não implementa a opção de parcelamento. Implemente:
+
+Quando "Forma de pagamento" = Cartão de Crédito, exibir campo "Tipo de compra": À vista ou Parcelado.
+Se "Parcelado", exibir campo "Número de parcelas" (2 a 24).
+Ao salvar uma compra parcelada, criar N transações (uma por parcela), não uma só:
+
+Valor de cada parcela = valor total ÷ número de parcelas, com a última parcela absorvendo a diferença de centavos de arredondamento.
+Cada parcela recebe reference_month correspondente ao mês da fatura em que cai, considerando o closing_day do cartão selecionado (se a compra for feita após o fechamento, a 1ª parcela já cai na fatura do mês seguinte).
+Todas as parcelas compartilham o mesmo installment_group_id (gerado uma vez por compra), com installment_number sequencial (1, 2, 3...) e installment_total fixo (igual ao número total escolhido).
+
+
+Na listagem de transações, exibir o número da parcela ao lado da descrição (ex: "Notebook (2/12)") quando a transação fizer parte de um parcelamento.
+Cada parcela deve refletir corretamente na fatura (invoices) do mês correspondente, somando ao total_amount daquele mês/cartão (criando a fatura automaticamente se ainda não existir, reaproveitando a lógica já usada para compras à vista no cartão).
+Ao excluir uma transação parcelada, perguntar se o usuário quer excluir apenas essa parcela ou todas as parcelas do grupo (via installment_group_id).
+
+7. FEATURE — Modo privacidade (ocultar valores em local público)
+Adicione um ícone de olho (👁 / 🚫👁) fixo e visível, de fácil acesso (ex: no header/topbar do app, ao lado do avatar do usuário), que funcione como um toggle "Ocultar valores":
+
+Quando ativado, todos os valores monetários exibidos no app (saldo, transações, faturas, gráficos, cards do dashboard, etc.) devem ser substituídos por um placeholder mascarado (ex: "R$ ••••••" ou "R$ ****"), mantendo o layout/posição intacto.
+O ícone deve alternar entre "olho aberto" (valores visíveis) e "olho fechado/riscado" (valores ocultos), com um leve tooltip explicando a função.
+Essa preferência deve ser persistida (ex: localStorage ou coluna de preferências do usuário no Supabase) para que o app lembre a escolha entre sessões, sem precisar ativar toda vez que abrir.
+Aplique essa máscara de forma centralizada (ex: um componente/hook useHideValues ou função de formatação que todos os componentes de valor monetário usem), para não precisar alterar tela por tela manualmente e evitar esquecer algum lugar onde valores aparecem.
+Garanta que a máscara cubra: dashboard (cards, gráficos, próximos vencimentos, transações recentes), tela de Transações, tela de Cartões/Faturas, e o DRE.
+
+Depois de implementar tudo, teste o fluxo completo: criar uma compra parcelada em 3x, confirmar que aparecem 3 transações distintas em meses consecutivos, que a fatura de cada mês soma certo, que o gráfico da home agrupa por categoria sem repetição, que o botão Despesa/Receita alterna visualmente de forma correta, que a notificação de teste aparece quando permitida, e que o modo de ocultar valores esconde corretamente todos os valores em todas as telas mencionadas.

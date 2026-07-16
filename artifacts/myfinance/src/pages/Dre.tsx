@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useFinance } from '@/context/FinanceContext';
+import { usePrivacy } from '@/context/PrivacyContext';
 import { formatCurrency } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -79,14 +80,13 @@ interface DRECat {
   name: string;
   color: string;
   total: number;
-  subcategories: DRESub[];        // transactions grouped by subcategory (if any)
-  ungroupedTransactions: DRETx[]; // transactions with no subcategory
+  subcategories: DRESub[];
+  ungroupedTransactions: DRETx[];
 }
 interface DREGroup { id: string; label: string; operator: '+' | '-'; total: number; categories: DRECat[]; }
 
 type SubcategoryList = ReturnType<typeof useFinance>['subcategories'];
 
-// groupId → categoryId → (subcategoryId | '__none__') → DRETx[]
 type DREBuckets = Record<string, Record<string, Record<string, DRETx[]>>>;
 
 const UNGROUPED_KEY = '__none__';
@@ -102,7 +102,6 @@ function buildDRE(
   const catMap = new Map(categories.map(c => [c.id, c]));
   const subMap = new Map(subcategories.map(s => [s.id, s]));
 
-  // group → category → (subcategoryId | UNGROUPED_KEY) → txs
   const grouped: DREBuckets = {};
 
   for (const tx of inRange) {
@@ -183,6 +182,9 @@ const PERIOD_OPTIONS: { value: Period; label: string }[] = [
 
 export const Dre = () => {
   const { transactions, categories, subcategories } = useFinance();
+  const { hideValues } = usePrivacy();
+  const mask = (n: number) => hideValues ? 'R$ ••••••' : formatCurrency(n);
+
   const [period, setPeriod] = useState<Period>('current_month');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -208,13 +210,11 @@ export const Dre = () => {
   const resultadoLiquido  = receitaLiquida - (despesasFixas + despesasVariaveis + despesasFinanc);
   const margemLiquida     = receitaBruta > 0 ? (resultadoLiquido / receitaBruta) * 100 : 0;
 
-  // Prev period summaries
   const prevReceitaBruta   = prevDRE.find(g => g.id === 'receita')?.total ?? 0;
   const prevDeducoes       = prevDRE.find(g => g.id === 'deducao')?.total ?? 0;
   const prevReceitaLiquida = prevReceitaBruta - prevDeducoes;
   const prevResultado      = prevReceitaLiquida - (prevDRE.find(g => g.id === 'despesa_fixa')?.total ?? 0) - (prevDRE.find(g => g.id === 'despesa_variavel')?.total ?? 0) - (prevDRE.find(g => g.id === 'despesa_financeira')?.total ?? 0);
 
-  // 12-month chart
   const chartData = useMemo(() => {
     const now = new Date();
     const MONTHS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -272,7 +272,9 @@ export const Dre = () => {
             <CardContent className="pt-4 pb-4">
               <p className="text-xs text-muted-foreground">{label}</p>
               <p className={cn('text-xl font-bold mt-1', color)}>
-                {isPct ? `${value.toFixed(1)}%` : formatCurrency(value)}
+                {isPct
+                  ? (hideValues ? '••••' : `${value.toFixed(1)}%`)
+                  : mask(value)}
               </p>
               {!isPct && <Delta current={value} previous={prev} />}
             </CardContent>
@@ -308,7 +310,7 @@ export const Dre = () => {
                     </div>
                     <div className="flex items-center gap-3">
                       <Delta current={group.total} previous={prevTotal} />
-                      <span className="font-bold text-sm w-28 text-right">{formatCurrency(group.total)}</span>
+                      <span className="font-bold text-sm w-28 text-right">{mask(group.total)}</span>
                     </div>
                   </button>
 
@@ -333,7 +335,7 @@ export const Dre = () => {
                               <Badge variant="secondary" className="text-[10px] h-4 px-1.5">{cat.subcategories.length} sub</Badge>
                             )}
                           </div>
-                          <span className="text-sm font-medium w-28 text-right">{formatCurrency(cat.total)}</span>
+                          <span className="text-sm font-medium w-28 text-right">{mask(cat.total)}</span>
                         </button>
 
                         {isCatExpanded && (
@@ -344,7 +346,6 @@ export const Dre = () => {
                               const isSubExpanded = expandedSubs.has(subKey);
                               return (
                                 <React.Fragment key={sub.subcategoryId}>
-                                  {/* Subcategory header */}
                                   <button
                                     className="w-full flex items-center justify-between px-4 py-2 pl-16 hover:bg-muted/15 transition-colors text-left bg-muted/5"
                                     onClick={() => toggleSub(subKey)}
@@ -354,31 +355,30 @@ export const Dre = () => {
                                       <span className="text-xs text-muted-foreground">↳</span>
                                       <span className="text-sm text-muted-foreground">{sub.name}</span>
                                     </div>
-                                    <span className="text-sm font-medium text-muted-foreground w-28 text-right">{formatCurrency(sub.total)}</span>
+                                    <span className="text-sm font-medium text-muted-foreground w-28 text-right">{mask(sub.total)}</span>
                                   </button>
 
-                                  {/* Subcategory transactions */}
                                   {isSubExpanded && sub.transactions.map(tx => (
                                     <div key={tx.id} className="flex items-center justify-between px-4 py-1.5 pl-[72px] bg-muted/5 text-sm border-l-2 border-muted ml-16">
                                       <div className="flex-1 min-w-0">
                                         <span className="text-muted-foreground truncate text-xs">{tx.description}</span>
                                         <span className="text-xs text-muted-foreground/60 ml-2">{tx.date}</span>
                                       </div>
-                                      <span className="text-muted-foreground w-28 text-right text-xs">{formatCurrency(tx.amount)}</span>
+                                      <span className="text-muted-foreground w-28 text-right text-xs">{mask(tx.amount)}</span>
                                     </div>
                                   ))}
                                 </React.Fragment>
                               );
                             })}
 
-                            {/* Ungrouped transactions (no subcategory) */}
+                            {/* Ungrouped transactions */}
                             {cat.ungroupedTransactions.map(tx => (
                               <div key={tx.id} className="flex items-center justify-between px-4 py-2 pl-16 bg-muted/5 text-sm">
                                 <div className="flex-1 min-w-0">
                                   <span className="text-muted-foreground truncate">{tx.description}</span>
                                   <span className="text-xs text-muted-foreground/60 ml-2">{tx.date}</span>
                                 </div>
-                                <span className="text-muted-foreground w-28 text-right">{formatCurrency(tx.amount)}</span>
+                                <span className="text-muted-foreground w-28 text-right">{mask(tx.amount)}</span>
                               </div>
                             ))}
                           </>
@@ -393,7 +393,7 @@ export const Dre = () => {
                       <span className="flex items-center gap-1.5"><Minus className="w-4 h-4" /> (=) Receita Líquida</span>
                       <div className="flex items-center gap-3">
                         <Delta current={receitaLiquida} previous={prevReceitaLiquida} />
-                        <span className={cn('w-28 text-right', receitaLiquida >= 0 ? 'text-success' : 'text-destructive')}>{formatCurrency(receitaLiquida)}</span>
+                        <span className={cn('w-28 text-right', receitaLiquida >= 0 ? 'text-success' : 'text-destructive')}>{mask(receitaLiquida)}</span>
                       </div>
                     </div>
                   )}
@@ -413,7 +413,7 @@ export const Dre = () => {
               <div className="flex items-center gap-3">
                 <Delta current={resultadoLiquido} previous={prevResultado} />
                 <span className={cn('w-28 text-right', resultadoLiquido >= 0 ? 'text-success' : 'text-destructive')}>
-                  {formatCurrency(resultadoLiquido)}
+                  {mask(resultadoLiquido)}
                 </span>
               </div>
             </div>
@@ -422,7 +422,7 @@ export const Dre = () => {
             <div className="flex items-center justify-between px-4 py-2.5 bg-muted/20 text-sm">
               <span className="text-muted-foreground">Margem Líquida</span>
               <span className={cn('font-semibold', margemLiquida >= 0 ? 'text-success' : 'text-destructive')}>
-                {margemLiquida.toFixed(1)}%
+                {hideValues ? '••••' : `${margemLiquida.toFixed(1)}%`}
               </span>
             </div>
           </div>
@@ -441,9 +441,13 @@ export const Dre = () => {
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" />
                 <XAxis dataKey="month" fontSize={11} stroke="hsl(var(--muted-foreground))" />
-                <YAxis tickFormatter={(v) => `R$${(v/1000).toFixed(0)}k`} fontSize={11} stroke="hsl(var(--muted-foreground))" />
+                <YAxis
+                  tickFormatter={(v) => hideValues ? '••••' : `R$${(v/1000).toFixed(0)}k`}
+                  fontSize={11}
+                  stroke="hsl(var(--muted-foreground))"
+                />
                 <Tooltip
-                  formatter={(v: number) => [formatCurrency(v), 'Resultado']}
+                  formatter={(v: number) => [hideValues ? 'R$ ••••••' : formatCurrency(v), 'Resultado']}
                   contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
                   itemStyle={{ color: 'hsl(var(--foreground))' }}
                 />

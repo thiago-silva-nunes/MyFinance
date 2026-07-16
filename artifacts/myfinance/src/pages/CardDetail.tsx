@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useParams, Link } from 'wouter';
 import { useFinance } from '@/context/FinanceContext';
+import { usePrivacy } from '@/context/PrivacyContext';
 import { formatCurrency, formatShortDate } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -34,6 +35,9 @@ export const CardDetail = () => {
   const params = useParams<{ id: string }>();
   const cardId = params.id;
   const { cards, invoices, transactions, categories, payInvoice } = useFinance();
+  const { hideValues } = usePrivacy();
+  const mask = (n: number) => hideValues ? 'R$ ••••••' : formatCurrency(n);
+
   const [expandedInvoice, setExpandedInvoice] = useState<string | null>(null);
   const [payingId, setPayingId] = useState<string | null>(null);
   const [txDialogOpen, setTxDialogOpen] = useState(false);
@@ -62,7 +66,7 @@ export const CardDetail = () => {
 
   const getInvoiceTransactions = (refMonth: string) => {
     return transactions.filter(tx => tx.cardId === cardId && tx.referenceMonth === refMonth)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      .sort((a, b) => b.date.localeCompare(a.date));
   };
 
   const handlePay = async (inv: Invoice) => {
@@ -110,25 +114,25 @@ export const CardDetail = () => {
           <div className="grid grid-cols-3 gap-4 text-center">
             <div>
               <p className="text-xs text-muted-foreground">Limite Total</p>
-              <p className="font-bold text-lg">{formatCurrency(card.limit)}</p>
+              <p className="font-bold text-lg">{mask(card.limit)}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Utilizado</p>
-              <p className={cn('font-bold text-lg', pct > 80 ? 'text-destructive' : pct > 50 ? 'text-amber-600' : '')}>
-                {formatCurrency(usedAmount)}
+              <p className={cn('font-bold text-lg', !hideValues && pct > 80 ? 'text-destructive' : !hideValues && pct > 50 ? 'text-amber-600' : '')}>
+                {mask(usedAmount)}
               </p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Disponível</p>
-              <p className="font-bold text-lg text-success">{formatCurrency(availableAmount)}</p>
+              <p className="font-bold text-lg text-success">{mask(availableAmount)}</p>
             </div>
           </div>
           <div className="space-y-1.5">
             <div className="flex justify-between text-xs text-muted-foreground">
-              <span>{pct.toFixed(0)}% utilizado</span>
-              <span>Disponível: {((1 - pct / 100) * 100).toFixed(0)}%</span>
+              <span>{hideValues ? '••%' : `${pct.toFixed(0)}%`} utilizado</span>
+              <span>Disponível: {hideValues ? '••%' : `${((1 - pct / 100) * 100).toFixed(0)}%`}</span>
             </div>
-            <Progress value={pct} className={cn('h-3', pct > 80 ? '[&>*]:bg-destructive' : pct > 50 ? '[&>*]:bg-amber-500' : '')} />
+            <Progress value={hideValues ? 0 : pct} className={cn('h-3', !hideValues && pct > 80 ? '[&>*]:bg-destructive' : !hideValues && pct > 50 ? '[&>*]:bg-amber-500' : '')} />
           </div>
         </CardContent>
       </Card>
@@ -181,7 +185,7 @@ export const CardDetail = () => {
                     </div>
                     <div className="flex items-center gap-3 shrink-0 ml-4">
                       <div className="text-right">
-                        <p className="font-bold">{formatCurrency(realTotal)}</p>
+                        <p className="font-bold">{mask(realTotal)}</p>
                         <Badge variant={cfg.variant} className="text-[10px] h-4">{cfg.label}</Badge>
                       </div>
                       {isExpanded ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
@@ -195,7 +199,7 @@ export const CardDetail = () => {
                         <div className="px-4 py-3 border-b">
                           <Button size="sm" className="gap-2" onClick={() => handlePay(inv)} disabled={isPaying}>
                             {isPaying ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                            Pagar fatura ({formatCurrency(realTotal)})
+                            Pagar fatura ({mask(realTotal)})
                           </Button>
                         </div>
                       )}
@@ -225,7 +229,7 @@ export const CardDetail = () => {
                                   </p>
                                   <p className="text-xs text-muted-foreground">{formatShortDate(tx.date)}</p>
                                 </div>
-                                <p className="text-sm font-medium">{formatCurrency(tx.amount)}</p>
+                                <p className="text-sm font-medium">{mask(tx.amount)}</p>
                               </div>
                             );
                           })}

@@ -3,10 +3,14 @@ import { Toaster } from 'sonner';
 import { Route, Switch, Router as WouterRouter } from 'wouter';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { FinanceProvider } from '@/context/FinanceContext';
+import { PrivacyProvider } from '@/context/PrivacyContext';
 import { Layout } from '@/components/Layout';
 import { InstallPWA } from '@/components/InstallPWA';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { Loader2, Settings2 } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { useFinance } from '@/context/FinanceContext';
+import { checkAndNotify, getNotificationPermission, cacheUpcomingItems, registerPeriodicSync } from '@/services/notificationService';
 
 import { Dashboard } from '@/pages/Dashboard';
 import { Transactions } from '@/pages/Transactions';
@@ -73,6 +77,30 @@ function SetupNeeded() {
   );
 }
 
+/** Fires browser notifications for upcoming items when permission is granted. */
+function NotificationChecker() {
+  const { scheduled, invoices, cards, loading } = useFinance();
+
+  useEffect(() => {
+    if (loading) return;
+    // Always cache upcoming items in IndexedDB so the SW can fire background notifications
+    cacheUpcomingItems(scheduled, invoices, cards).catch(() => {});
+
+    if (getNotificationPermission() !== 'granted') return;
+
+    // Register periodic background sync (no-op if already registered or not supported)
+    registerPeriodicSync().catch(() => {});
+
+    // Also run an in-session check on load with a small delay
+    const timer = setTimeout(() => {
+      checkAndNotify(scheduled, invoices, cards).catch(() => {});
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [loading, scheduled, invoices, cards]);
+
+  return null;
+}
+
 function AppContent() {
   const { user, loading } = useAuth();
 
@@ -90,6 +118,7 @@ function AppContent() {
 
   return (
     <FinanceProvider>
+      <NotificationChecker />
       <Layout>
         <Switch>
           <Route path="/" component={Dashboard} />
@@ -113,10 +142,12 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <AppContent />
-        </WouterRouter>
-        <Toaster position="top-right" richColors />
+        <PrivacyProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+            <AppContent />
+          </WouterRouter>
+          <Toaster position="top-right" richColors />
+        </PrivacyProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

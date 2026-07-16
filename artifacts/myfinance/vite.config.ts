@@ -35,6 +35,9 @@ export default defineConfig({
     tailwindcss(),
     runtimeErrorOverlay(),
     VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'icons/icon-192.png', 'icons/icon-512.png'],
       manifest: {
@@ -68,11 +71,8 @@ export default defineConfig({
           },
         ],
       },
-      workbox: {
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        // Don't cache Supabase API calls — those need fresh data
-        navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/api/],
       },
     }),
     ...(process.env.NODE_ENV !== 'production' &&

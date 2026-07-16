@@ -3,17 +3,22 @@ import { Link, useLocation } from 'wouter';
 import {
   LayoutDashboard, Receipt, Tags, CalendarClock, LineChart,
   Settings, Wallet, LogOut, Plus, MoreHorizontal, CreditCard, BarChart2,
+  Eye, EyeOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useFinance } from '@/context/FinanceContext';
 import { useAuth } from '@/context/AuthContext';
+import { usePrivacy } from '@/context/PrivacyContext';
 import { TransactionFormDialog } from '@/components/TransactionFormDialog';
 import { toast } from 'sonner';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 const navItems = [
   { href: '/',             label: 'Dashboard',   icon: LayoutDashboard },
@@ -31,6 +36,7 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
   const [location] = useLocation();
   const { settings } = useFinance();
   const { signOut } = useAuth();
+  const { hideValues, toggleHideValues } = usePrivacy();
   const [addOpen, setAddOpen] = useState(false);
 
   const handleSignOut = async () => {
@@ -39,6 +45,35 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
 
   // Mobile bottom nav shows first 4 items + "Mais"
   const mobileMainItems = navItems.slice(0, 4);
+
+  const PrivacyButton = ({ size = 'default' }: { size?: 'default' | 'sm' }) => (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={toggleHideValues}
+            aria-label={hideValues ? 'Mostrar valores' : 'Ocultar valores'}
+            className={cn(
+              'flex items-center justify-center rounded-lg transition-colors',
+              size === 'sm'
+                ? 'w-8 h-8 hover:bg-muted'
+                : 'w-9 h-9 hover:bg-muted/60',
+              hideValues
+                ? 'text-amber-500 hover:text-amber-600'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {hideValues
+              ? <EyeOff className={size === 'sm' ? 'w-4 h-4' : 'w-5 h-5'} />
+              : <Eye className={size === 'sm' ? 'w-4 h-4' : 'w-5 h-5'} />}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          {hideValues ? 'Mostrar valores' : 'Ocultar valores'}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 
   return (
     <div className="flex min-h-[100dvh] w-full bg-background md:bg-muted/30">
@@ -50,6 +85,9 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
             <Wallet className="w-5 h-5" />
           </div>
           <span className="font-bold text-xl tracking-tight">MyFinance</span>
+          <div className="ml-auto">
+            <PrivacyButton />
+          </div>
         </div>
 
         <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
@@ -87,10 +125,31 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
           </div>
           <span className="font-bold text-lg tracking-tight">MyFinance</span>
         </div>
-        <span className="text-sm font-medium text-muted-foreground">
-          {navItems.find(n => n.href === location || (n.href !== '/' && location.startsWith(n.href)))?.label
-            ?? (location === '/settings' ? 'Configurações' : '')}
-        </span>
+        <div className="flex items-center gap-1">
+          <span className="text-sm font-medium text-muted-foreground">
+            {navItems.find(n => n.href === location || (n.href !== '/' && location.startsWith(n.href)))?.label
+              ?? (location === '/settings' ? 'Configurações' : '')}
+          </span>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={toggleHideValues}
+                  aria-label={hideValues ? 'Mostrar valores' : 'Ocultar valores'}
+                  className={cn(
+                    'ml-2 flex items-center justify-center w-8 h-8 rounded-lg transition-colors hover:bg-muted',
+                    hideValues ? 'text-amber-500' : 'text-muted-foreground',
+                  )}
+                >
+                  {hideValues ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {hideValues ? 'Mostrar valores' : 'Ocultar valores'}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </div>
 
       {/* ── Main Content ─────────────────────────────────────────────────── */}

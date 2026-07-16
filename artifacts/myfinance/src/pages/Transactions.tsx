@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useFinance } from '@/context/FinanceContext';
+import { usePrivacy } from '@/context/PrivacyContext';
 import { formatCurrency, formatShortDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +24,9 @@ interface InstallmentDeleteTarget {
 
 export const Transactions = () => {
   const { transactions, categories, deleteTransaction, deleteInstallmentGroup, updateTransaction } = useFinance();
+  const { hideValues } = usePrivacy();
+  const mask = (amount: number) => hideValues ? 'R$ ••••••' : formatCurrency(amount);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -41,7 +45,7 @@ export const Transactions = () => {
         if (statusFilter !== 'all' && t.status !== statusFilter) return false;
         return true;
       })
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      .sort((a, b) => b.date.localeCompare(a.date));
   }, [transactions, searchTerm, typeFilter, categoryFilter, statusFilter]);
 
   const handleEdit = (transaction: Transaction) => {
@@ -191,7 +195,7 @@ export const Transactions = () => {
                         </Badge>
                       </TableCell>
                       <TableCell className={`text-right font-medium whitespace-nowrap ${t.type === 'income' ? 'text-success' : ''}`}>
-                        {t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount)}
+                        {t.type === 'income' ? '+' : '-'}{mask(t.amount)}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
