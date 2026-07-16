@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { getIcon } from '@/components/IconMap';
 import { toast } from 'sonner';
 import { Transaction } from '@/data/mockData';
-import { CreditCard } from 'lucide-react';
+import { CreditCard, Info } from 'lucide-react';
 
 const transactionSchema = z.object({
   description: z.string().min(1, 'Descrição é obrigatória'),
@@ -24,6 +24,8 @@ const transactionSchema = z.object({
   paymentMethod: z.string().optional(),
   cardId: z.string().optional(),
   notes: z.string().optional(),
+  purchaseType: z.enum(['avista', 'parcelado']).default('avista'),
+  installments: z.coerce.number().min(2).max(24).default(2),
 });
 
 interface TransactionFormProps {
@@ -34,7 +36,7 @@ interface TransactionFormProps {
 }
 
 export const TransactionFormDialog = ({ open, onOpenChange, transaction, defaultCardId }: TransactionFormProps) => {
-  const { categories, subcategories, cards, addTransaction, updateTransaction } = useFinance();
+  const { categories, subcategories, cards, addTransaction, updateTransaction, addInstallments } = useFinance();
 
   const form = useForm<z.infer<typeof transactionSchema>>({
     resolver: zodResolver(transactionSchema),
@@ -45,6 +47,8 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
       paymentMethod: defaultCardId ? 'cartao_credito' : 'dinheiro_pix_debito',
       cardId: defaultCardId ?? '',
       notes: '',
+      purchaseType: 'avista',
+      installments: 2,
     },
   });
 
@@ -60,6 +64,8 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
           paymentMethod: isCard ? 'cartao_credito' : (transaction.paymentMethod || 'dinheiro_pix_debito'),
           cardId: transaction.cardId ?? '',
           notes: transaction.notes || '',
+          purchaseType: 'avista',
+          installments: 2,
         });
       } else {
         form.reset({
@@ -69,6 +75,8 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
           paymentMethod: defaultCardId ? 'cartao_credito' : 'dinheiro_pix_debito',
           cardId: defaultCardId ?? '',
           notes: '',
+          purchaseType: 'avista',
+          installments: 2,
         });
       }
     }
@@ -76,9 +84,11 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
 
   const type = form.watch('type');
   const paymentMethod = form.watch('paymentMethod');
+  const purchaseType = form.watch('purchaseType');
   const selectedCategoryId = form.watch('categoryId');
   const isCardPayment = type === 'expense' && paymentMethod === 'cartao_credito';
   const filteredCategories = categories.filter(c => c.type === type);
+  const isNewInstallment = isCardPayment && !transaction && purchaseType === 'parcelado';
 
   // Subcategories belonging to the selected category
   const availableSubcategories = selectedCategoryId
@@ -97,9 +107,13 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
         paymentMethod: data.paymentMethod || undefined,
         cardId, notes: data.notes || undefined,
       };
+
       if (transaction) {
         await updateTransaction(transaction.id, { ...payload, cardId: cardId ?? null as unknown as undefined });
         toast.success('Transação atualizada com sucesso');
+      } else if (isCardPayment && data.purchaseType === 'parcelado' && data.installments > 1) {
+        await addInstallments(payload, data.installments);
+        toast.success(`Compra parcelada em ${data.installments}x lançada com sucesso`);
       } else {
         await addTransaction(payload);
         toast.success('Transação adicionada com sucesso');
@@ -130,8 +144,10 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                       className="w-full" onClick={() => { field.onChange('expense'); form.setValue('categoryId', ''); form.setValue('subcategoryId', ''); }}>
                       Despesa
                     </Button>
-                    <Button type="button" variant={field.value === 'income' ? 'default' : 'outline'}
-                      className="w-full bg-success text-success-foreground hover:bg-success/90"
+                    <Button
+                      type="button"
+                      variant={field.value === 'income' ? 'default' : 'outline'}
+                      className={`w-full ${field.value === 'income' ? 'bg-success text-success-foreground hover:bg-success/90' : ''}`}
                       onClick={() => { field.onChange('income'); form.setValue('categoryId', ''); form.setValue('subcategoryId', ''); form.setValue('paymentMethod', 'dinheiro_pix_debito'); }}>
                       Receita
                     </Button>
@@ -151,7 +167,9 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
               {/* Amount */}
               <FormField control={form.control} name="amount" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Valor (R$)</FormLabel>
+                  <FormLabel>
+                    {isNewInstallment ? 'Valor total (R$)' : 'Valor (R$)'}
+                  </FormLabel>
                   <FormControl>
                     <Input
                       type="number"
@@ -170,7 +188,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
               {/* Date */}
               <FormField control={form.control} name="date" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Data</FormLabel>
+                  <FormLabel>Data da compra</FormLabel>
                   <FormControl><Input type="date" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
@@ -233,7 +251,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                 <FormField control={form.control} name="paymentMethod" render={({ field }) => (
                   <FormItem className="col-span-2">
                     <FormLabel>Forma de pagamento</FormLabel>
-                    <Select onValueChange={(v) => { field.onChange(v); if (v !== 'cartao_credito') form.setValue('cardId', ''); }}
+                    <Select onValueChange={(v) => { field.onChange(v); if (v !== 'cartao_credito') { form.setValue('cardId', ''); form.setValue('purchaseType', 'avista'); } }}
                       value={field.value}>
                       <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                       <SelectContent>
@@ -275,6 +293,52 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                 )} />
               )}
 
+              {/* Purchase type — only for new card transactions */}
+              {isCardPayment && !transaction && (
+                <FormField control={form.control} name="purchaseType" render={({ field }) => (
+                  <FormItem className="col-span-2">
+                    <FormLabel>Tipo de compra</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        <SelectItem value="avista">À vista</SelectItem>
+                        <SelectItem value="parcelado">Parcelado</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              )}
+
+              {/* Installment count — only when parcelado */}
+              {isCardPayment && !transaction && purchaseType === 'parcelado' && (
+                <FormField control={form.control} name="installments" render={({ field }) => (
+                  <FormItem className="col-span-2">
+                    <FormLabel>Número de parcelas</FormLabel>
+                    <Select onValueChange={(v) => field.onChange(Number(v))} value={String(field.value)}>
+                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        {Array.from({ length: 23 }, (_, i) => i + 2).map(n => (
+                          <SelectItem key={n} value={String(n)}>{n}x</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              )}
+
+              {/* Notice when editing an installment transaction */}
+              {transaction?.installmentGroupId && (
+                <div className="col-span-2 flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                  <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    Parcela <strong>{transaction.installmentNumber}/{transaction.installmentTotal}</strong> de uma compra parcelada.
+                    A edição afeta apenas esta parcela.
+                  </span>
+                </div>
+              )}
+
               {/* Status */}
               <FormField control={form.control} name="status" render={({ field }) => (
                 <FormItem className="col-span-2">
@@ -293,7 +357,9 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
 
             <DialogFooter className="pt-2">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-              <Button type="submit">Salvar</Button>
+              <Button type="submit">
+                {isNewInstallment ? `Lançar parcelado` : 'Salvar'}
+              </Button>
             </DialogFooter>
           </form>
         </Form>

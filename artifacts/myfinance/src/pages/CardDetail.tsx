@@ -215,7 +215,14 @@ export const CardDetail = () => {
                                   <Icon className="w-4 h-4" />
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium truncate">{tx.description}</p>
+                                  <p className="text-sm font-medium truncate">
+                                    {tx.description}
+                                    {tx.installmentNumber && tx.installmentTotal && (
+                                      <span className="ml-1 text-xs text-muted-foreground font-normal">
+                                        ({tx.installmentNumber}/{tx.installmentTotal})
+                                      </span>
+                                    )}
+                                  </p>
                                   <p className="text-xs text-muted-foreground">{formatShortDate(tx.date)}</p>
                                 </div>
                                 <p className="text-sm font-medium">{formatCurrency(tx.amount)}</p>

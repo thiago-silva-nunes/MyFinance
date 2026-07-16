@@ -1,0 +1,55 @@
+Preciso corrigir 2 bugs e implementar 1 feature importante no meu app de finanças (React + Supabase). Segue tudo detalhado:
+BUG 1 — Subcategorias não salvam: "new row violates row-level security policy for table 'subcategories' (código 42501)"
+Isso é uma política de RLS que está bloqueando o insert. Antes de sair alterando a policy, faça um diagnóstico:
+
+Rode uma query no SQL Editor do Supabase para listar as policies atuais da tabela subcategories (via pg_policies ou information_schema).
+Verifique no código (dataService.ts ou onde subcategorias são criadas) se o insert está enviando o campo user_id corretamente preenchido com auth.uid() do usuário logado (ex: supabase.auth.getUser() ou session.user.id) — é comum esse erro acontecer quando o insert não envia user_id, ou envia null, ou envia um valor diferente do usuário autenticado.
+Confirme que a policy "Users manage their own subcategories" está de fato ativa (RLS habilitado + policy existente) e que ela usa using (auth.uid() = user_id) with check (auth.uid() = user_id) — se por algum motivo a policy foi sobrescrita/removida em alguma migration, recrie.
+Corrija o ponto exato (código do insert e/ou policy) e teste criando uma subcategoria de verdade.
+
+BUG 2 — Botão "Receita" continua verde mesmo quando "Despesa" está selecionado
+No arquivo TransactionFormDialog.tsx, o botão "Receita" tem a classe fixa bg-success text-success-foreground hover:bg-success/90 no className, independente do variant. Isso faz ele parecer sempre "ativo" (verde) mesmo quando o tipo selecionado é "Despesa", confundindo o usuário sobre qual está selecionado.
+Corrija para que:
+
+Quando type === 'expense': botão Despesa fica destacado (vermelho/destructive), botão Receita fica em estado neutro/outline (sem verde).
+Quando type === 'income': botão Receita fica destacado (verde), botão Despesa fica em estado neutro/outline (sem vermelho).
+
+Ou seja, aplique a cor de destaque condicionalmente também no botão Receita (ex: só adicionar bg-success text-success-foreground quando field.value === 'income', senão usar a classe padrão do variant="outline").
+FEATURE — Parcelamento de compras no cartão de crédito, integrado com Fatura e DRE
+Hoje, ao lançar uma transação com "Forma de pagamento: Cartão de Crédito", não existe opção de escolher se a compra foi à vista ou parcelada, nem quantidade de parcelas. Preciso implementar isso de ponta a ponta:
+1. Banco de dados (schema.sql):
+
+Adicionar colunas na tabela transactions para suportar parcelamento, por exemplo:
+
+installment_group_id uuid (identifica que várias transações pertencem à mesma compra parcelada)
+installment_number integer (ex: 1, 2, 3...)
+installment_total integer (ex: total de parcelas, ex: 3)
+
+
+Usar alter table ... add column if not exists para manter compatibilidade com o banco já existente (não recriar do zero).
+
+2. Formulário (TransactionFormDialog.tsx):
+
+Quando "Forma de pagamento" = Cartão de Crédito, exibir um novo campo "Tipo de compra": À vista ou Parcelado.
+Se "Parcelado", exibir campo "Número de parcelas" (ex: select de 2 a 24, ou input numérico).
+Ao salvar uma compra parcelada, ao invés de criar 1 transação, criar N transações (uma por parcela):
+
+Valor de cada parcela = valor total / número de parcelas (atenção a arredondamento — a última parcela deve absorver a diferença de centavos, se houver).
+Cada parcela deve ter a reference_month correspondente ao mês da fatura em que vai cair, considerando o closing_day do cartão (ex: se fechar dia 10 e a compra for feita depois do fechamento, a primeira parcela já cai na fatura do mês seguinte).
+Todas as parcelas compartilham o mesmo installment_group_id, com installment_number sequencial e installment_total fixo.
+
+
+
+3. Integração com Faturas (invoices):
+
+Cada parcela deve ser corretamente associada/computada na fatura (invoices) do mês de referência correspondente (via card_id + reference_month), somando ao total_amount da fatura daquele mês.
+Se a fatura daquele mês/cartão ainda não existir, criar automaticamente (igual já deve acontecer hoje para transações de cartão não parceladas — confirme e reaproveite essa lógica).
+
+4. Integração com DRE e demais telas:
+
+No DRE (e qualquer outro lugar que soma transações por mês/categoria), cada parcela deve contar apenas no mês em que efetivamente cai (não no mês da compra original) — isso já deve funcionar naturalmente se reference_month/date de cada parcela estiver correto, mas valide.
+Na listagem de transações e na tela de detalhe do cartão, exibir de forma clara que aquela transação é uma parcela (ex: "Notebook (2/12)"), permitindo ao usuário entender que faz parte de uma compra parcelada.
+Ao excluir uma transação parcelada, perguntar ao usuário se deseja excluir apenas essa parcela ou todas as parcelas do grupo (installment_group_id), e implementar ambos os comportamentos.
+Ao editar uma transação parcelada, deixar claro na UI que a edição afeta apenas aquela parcela específica (não altera as demais automaticamente).
+
+Depois de implementar tudo, teste o fluxo completo: criar uma compra parcelada em 3x no cartão, verificar se as 3 parcelas aparecem corretamente nas faturas dos meses seguintes, se o DRE reflete o valor certo em cada mês, e se a exclusão/edição funciona como esperado.

@@ -6,14 +6,23 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { getIcon } from '@/components/IconMap';
 import { TransactionFormDialog } from '@/components/TransactionFormDialog';
 import { Transaction } from '@/data/mockData';
-import { Search, Plus, Edit2, Trash2, CheckCircle } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, CheckCircle, Layers } from 'lucide-react';
 import { toast } from 'sonner';
 
+interface InstallmentDeleteTarget {
+  id: string;
+  groupId: string;
+  num: number;
+  total: number;
+  description: string;
+}
+
 export const Transactions = () => {
-  const { transactions, categories, deleteTransaction, updateTransaction } = useFinance();
+  const { transactions, categories, deleteTransaction, deleteInstallmentGroup, updateTransaction } = useFinance();
   const [searchTerm, setSearchTerm] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
@@ -21,6 +30,7 @@ export const Transactions = () => {
 
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [installmentDeleteTarget, setInstallmentDeleteTarget] = useState<InstallmentDeleteTarget | null>(null);
 
   const filteredTransactions = useMemo(() => {
     return transactions
@@ -39,10 +49,20 @@ export const Transactions = () => {
     setIsFormOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('Tem certeza que deseja excluir esta transação?')) {
-      deleteTransaction(id);
-      toast.success('Transação excluída');
+  const handleDelete = (t: Transaction) => {
+    if (t.installmentGroupId) {
+      setInstallmentDeleteTarget({
+        id: t.id,
+        groupId: t.installmentGroupId,
+        num: t.installmentNumber ?? 1,
+        total: t.installmentTotal ?? 1,
+        description: t.description,
+      });
+    } else {
+      if (confirm('Tem certeza que deseja excluir esta transação?')) {
+        deleteTransaction(t.id);
+        toast.success('Transação excluída');
+      }
     }
   };
 
@@ -140,10 +160,23 @@ export const Transactions = () => {
                 filteredTransactions.map((t) => {
                   const cat = categories.find(c => c.id === t.categoryId);
                   const Icon = getIcon(cat?.icon || 'more-horizontal');
+                  const isInstallment = !!(t.installmentGroupId && t.installmentNumber && t.installmentTotal);
                   return (
                     <TableRow key={t.id}>
                       <TableCell className="whitespace-nowrap">{formatShortDate(t.date)}</TableCell>
-                      <TableCell className="font-medium">{t.description}</TableCell>
+                      <TableCell className="font-medium">
+                        <div className="flex items-center gap-1.5">
+                          {isInstallment && (
+                            <Layers className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                          )}
+                          <span>{t.description}</span>
+                          {isInstallment && (
+                            <span className="text-xs text-muted-foreground font-normal whitespace-nowrap">
+                              ({t.installmentNumber}/{t.installmentTotal})
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell>
                         {cat ? (
                           <div className="flex items-center gap-2">
@@ -168,7 +201,7 @@ export const Transactions = () => {
                           <Button variant="ghost" size="icon" onClick={() => handleEdit(t)}>
                             <Edit2 className="w-4 h-4 text-muted-foreground" />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDelete(t.id)}>
+                          <Button variant="ghost" size="icon" onClick={() => handleDelete(t)}>
                             <Trash2 className="w-4 h-4 text-destructive" />
                           </Button>
                         </div>
@@ -187,6 +220,50 @@ export const Transactions = () => {
         onOpenChange={setIsFormOpen} 
         transaction={editingTransaction} 
       />
+
+      {/* Installment delete dialog */}
+      <Dialog
+        open={!!installmentDeleteTarget}
+        onOpenChange={(open) => { if (!open) setInstallmentDeleteTarget(null); }}
+      >
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Excluir compra parcelada</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            <strong>"{installmentDeleteTarget?.description}"</strong> é a parcela{' '}
+            <strong>{installmentDeleteTarget?.num}/{installmentDeleteTarget?.total}</strong>.
+            O que deseja excluir?
+          </p>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button variant="outline" className="sm:mr-auto" onClick={() => setInstallmentDeleteTarget(null)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (!installmentDeleteTarget) return;
+                await deleteTransaction(installmentDeleteTarget.id);
+                toast.success('Parcela excluída');
+                setInstallmentDeleteTarget(null);
+              }}
+            >
+              Só esta parcela
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (!installmentDeleteTarget) return;
+                await deleteInstallmentGroup(installmentDeleteTarget.groupId);
+                toast.success(`${installmentDeleteTarget.total} parcelas excluídas`);
+                setInstallmentDeleteTarget(null);
+              }}
+            >
+              Todas ({installmentDeleteTarget?.total}x)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

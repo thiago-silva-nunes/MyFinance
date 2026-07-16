@@ -24,8 +24,10 @@ interface FinanceContextType {
   deleteSubcategory: (id: string) => Promise<void>;
 
   addTransaction: (data: Omit<Transaction, 'id'>) => Promise<void>;
+  addInstallments: (data: Omit<Transaction, 'id'>, totalInstallments: number) => Promise<void>;
   updateTransaction: (id: string, data: Partial<Transaction>) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
+  deleteInstallmentGroup: (groupId: string) => Promise<void>;
 
   addScheduled: (data: Omit<ScheduledTransaction, 'id'>) => Promise<void>;
   updateScheduled: (id: string, data: Partial<ScheduledTransaction>) => Promise<void>;
@@ -111,8 +113,10 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   // ─── Transaction actions ───────────────────────────────────────────────────
 
   const addTransaction = async (data: Omit<Transaction, 'id'>) => { await dataService.addTransaction(data); await refreshData(); };
+  const addInstallments = async (data: Omit<Transaction, 'id'>, n: number) => { await dataService.addInstallments(data, n); await refreshData(); };
   const updateTransaction = async (id: string, data: Partial<Transaction>) => { await dataService.updateTransaction(id, data); await refreshData(); };
   const deleteTransaction = async (id: string) => { await dataService.deleteTransaction(id); await refreshData(); };
+  const deleteInstallmentGroup = async (groupId: string) => { await dataService.deleteInstallmentGroup(groupId); await refreshData(); };
 
   // ─── Scheduled actions ─────────────────────────────────────────────────────
 
@@ -144,7 +148,7 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
       refreshData,
       addCategory, updateCategory, deleteCategory,
       addSubcategory, updateSubcategory, deleteSubcategory,
-      addTransaction, updateTransaction, deleteTransaction,
+      addTransaction, addInstallments, updateTransaction, deleteTransaction, deleteInstallmentGroup,
       addScheduled, updateScheduled, deleteScheduled,
       addCard, updateCard, deleteCard, payInvoice,
       updateSettings, loadSampleData,

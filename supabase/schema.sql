@@ -170,4 +170,26 @@ begin
     alter table transactions
       add column subcategory_id uuid references subcategories(id) on delete set null;
   end if;
+
+  -- v4: installment support (parcelamento de cartão de crédito)
+  if not exists (
+    select 1 from information_schema.columns
+    where table_name = 'transactions' and column_name = 'installment_group_id'
+  ) then
+    alter table transactions add column installment_group_id uuid;
+  end if;
+
+  if not exists (
+    select 1 from information_schema.columns
+    where table_name = 'transactions' and column_name = 'installment_number'
+  ) then
+    alter table transactions add column installment_number integer;
+  end if;
+
+  if not exists (
+    select 1 from information_schema.columns
+    where table_name = 'transactions' and column_name = 'installment_total'
+  ) then
+    alter table transactions add column installment_total integer;
+  end if;
 end $;

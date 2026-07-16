@@ -68,6 +68,18 @@ export function getInvoiceDates(
   return { closingDate, dueDate };
 }
 
+/** Advance a date string (YYYY-MM-DD) by N months, clamping to the last day of the target month. */
+function addMonths(dateStr: string, months: number): string {
+  if (months === 0) return dateStr;
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const totalM = (y * 12 + (m - 1)) + months;
+  const newY = Math.floor(totalM / 12);
+  const newM = (totalM % 12) + 1; // 1-indexed
+  const lastDay = new Date(newY, newM, 0).getDate();
+  const newD = Math.min(d, lastDay);
+  return `${newY}-${String(newM).padStart(2, '0')}-${String(newD).padStart(2, '0')}`;
+}
+
 /** Compute the correct invoice status given dates and today. */
 export function computeInvoiceStatus(
   closingDate: string,
@@ -285,7 +297,7 @@ export const dataService = {
   getTransactions: async (): Promise<Transaction[]> => {
     const { data, error } = await supabase
       .from('transactions')
-      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, reference_month')
+      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, reference_month, installment_group_id, installment_number, installment_total')
       .order('date', { ascending: false });
     if (error) throw error;
     return (data ?? []).map((row) => ({
@@ -302,6 +314,12 @@ export const dataService = {
       scheduledId: row.scheduled_id ?? undefined,
       cardId: row.card_id ?? undefined,
       referenceMonth: row.reference_month ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      installmentGroupId: (row as any).installment_group_id ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      installmentNumber: (row as any).installment_number ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      installmentTotal: (row as any).installment_total ?? undefined,
     }));
   },
 
@@ -335,7 +353,7 @@ export const dataService = {
         card_id: tx.cardId ?? null,
         reference_month: referenceMonth,
       })
-      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, reference_month')
+      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, reference_month, installment_group_id, installment_number, installment_total')
       .single();
     if (error) throw error;
 
@@ -357,7 +375,64 @@ export const dataService = {
       status: data.status as 'paid' | 'pending', paymentMethod: data.payment_method ?? undefined,
       notes: data.notes ?? undefined, scheduledId: data.scheduled_id ?? undefined,
       cardId: data.card_id ?? undefined, referenceMonth: data.reference_month ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      installmentGroupId: (data as any).installment_group_id ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      installmentNumber: (data as any).installment_number ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      installmentTotal: (data as any).installment_total ?? undefined,
     };
+  },
+
+  addInstallments: async (tx: Omit<Transaction, 'id'>, totalInstallments: number): Promise<void> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    if (!tx.cardId) throw new Error('Parcelamento requer um cartão de crédito');
+
+    const { data: cardRow, error: cardErr } = await supabase
+      .from('credit_cards').select('*').eq('id', tx.cardId).single();
+    if (cardErr || !cardRow) throw new Error('Cartão não encontrado');
+    const card = mapCardRow(cardRow as Record<string, unknown>);
+
+    const installmentGroupId = crypto.randomUUID();
+    const baseAmountCents = Math.floor((tx.amount * 100) / totalInstallments);
+    const lastAmountCents = Math.round(tx.amount * 100) - baseAmountCents * (totalInstallments - 1);
+    const purchaseDateStr = tx.date.split('T')[0];
+
+    const rows: Record<string, unknown>[] = [];
+    const affectedMonths = new Set<string>();
+
+    for (let i = 1; i <= totalInstallments; i++) {
+      const installmentDate = addMonths(purchaseDateStr, i - 1);
+      const referenceMonth = getInvoiceReferenceMonth(installmentDate, card.closingDay);
+      const amount = i < totalInstallments ? baseAmountCents / 100 : lastAmountCents / 100;
+      affectedMonths.add(referenceMonth);
+      rows.push({
+        user_id: user.id,
+        description: tx.description,
+        amount,
+        type: tx.type,
+        category_id: tx.categoryId,
+        subcategory_id: tx.subcategoryId ?? null,
+        date: installmentDate,
+        status: tx.status,
+        payment_method: tx.paymentMethod ?? null,
+        notes: tx.notes ?? null,
+        card_id: tx.cardId,
+        reference_month: referenceMonth,
+        installment_group_id: installmentGroupId,
+        installment_number: i,
+        installment_total: totalInstallments,
+      });
+    }
+
+    const { error } = await supabase.from('transactions').insert(rows);
+    if (error) throw error;
+
+    for (const refMonth of affectedMonths) {
+      await ensureInvoice(user.id, card, refMonth);
+      await recalcInvoiceTotal(tx.cardId!, refMonth);
+    }
   },
 
   updateTransaction: async (id: string, tx: Partial<Transaction>): Promise<Transaction> => {
@@ -399,7 +474,7 @@ export const dataService = {
       .from('transactions')
       .update(updates)
       .eq('id', id)
-      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, reference_month')
+      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, reference_month, installment_group_id, installment_number, installment_total')
       .single();
     if (error) throw error;
 
@@ -423,6 +498,12 @@ export const dataService = {
       status: data.status as 'paid' | 'pending', paymentMethod: data.payment_method ?? undefined,
       notes: data.notes ?? undefined, scheduledId: data.scheduled_id ?? undefined,
       cardId: data.card_id ?? undefined, referenceMonth: data.reference_month ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      installmentGroupId: (data as any).installment_group_id ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      installmentNumber: (data as any).installment_number ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      installmentTotal: (data as any).installment_total ?? undefined,
     };
   },
 
@@ -438,6 +519,29 @@ export const dataService = {
 
     if (existing?.card_id && existing?.reference_month) {
       await recalcInvoiceTotal(existing.card_id, existing.reference_month);
+    }
+  },
+
+  deleteInstallmentGroup: async (groupId: string): Promise<void> => {
+    const { data: rows, error: fetchErr } = await supabase
+      .from('transactions')
+      .select('card_id, reference_month')
+      .eq('installment_group_id', groupId);
+    if (fetchErr) throw fetchErr;
+
+    const { error } = await supabase.from('transactions').delete().eq('installment_group_id', groupId);
+    if (error) throw error;
+
+    // Recalculate totals for all invoice months affected by the deleted installments
+    const seen = new Set<string>();
+    for (const row of rows ?? []) {
+      if (row.card_id && row.reference_month) {
+        const key = `${row.card_id}__${row.reference_month}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          await recalcInvoiceTotal(row.card_id, row.reference_month);
+        }
+      }
     }
   },
 

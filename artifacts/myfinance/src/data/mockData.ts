@@ -27,6 +27,9 @@ export interface Transaction {
   scheduledId?: string;
   cardId?: string;           // linked credit card
   referenceMonth?: string;   // 'YYYY-MM' — which invoice month this belongs to
+  installmentGroupId?: string; // UUID shared by all installments of the same purchase
+  installmentNumber?: number;  // 1-indexed position (e.g. 2 in a 3x purchase)
+  installmentTotal?: number;   // total installment count (e.g. 3 in a 3x purchase)
 }
 
 export interface ScheduledTransaction {
