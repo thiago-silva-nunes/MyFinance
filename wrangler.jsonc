@@ -1,0 +1,10 @@
+cat > wrangler.jsonc << 'EOF'
+{
+  "name": "myfinance",
+  "compatibility_date": "2026-07-15",
+  "assets": {
+    "directory": "./artifacts/myfinance/dist/public",
+    "not_found_handling": "single-page-application"
+  }
+}
+EOF
