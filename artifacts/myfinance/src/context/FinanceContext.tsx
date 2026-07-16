@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { Category, Transaction, ScheduledTransaction, CreditCard, Invoice } from '../data/mockData';
+import { Category, Subcategory, Transaction, ScheduledTransaction, CreditCard, Invoice } from '../data/mockData';
 import { dataService } from '../services/dataService';
 import { useAuth } from './AuthContext';
 
 interface FinanceContextType {
   categories: Category[];
+  subcategories: Subcategory[];
   transactions: Transaction[];
   scheduled: ScheduledTransaction[];
   cards: CreditCard[];
@@ -17,6 +18,10 @@ interface FinanceContextType {
   addCategory: (data: Omit<Category, 'id'>) => Promise<void>;
   updateCategory: (id: string, data: Partial<Category>) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
+
+  addSubcategory: (data: Omit<Subcategory, 'id'>) => Promise<void>;
+  updateSubcategory: (id: string, data: Partial<Omit<Subcategory, 'id'>>) => Promise<void>;
+  deleteSubcategory: (id: string) => Promise<void>;
 
   addTransaction: (data: Omit<Transaction, 'id'>) => Promise<void>;
   updateTransaction: (id: string, data: Partial<Transaction>) => Promise<void>;
@@ -41,6 +46,7 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
 
   const [categories, setCategories] = useState<Category[]>([]);
+  const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [scheduled, setScheduled] = useState<ScheduledTransaction[]>([]);
   const [cards, setCards] = useState<CreditCard[]>([]);
@@ -61,20 +67,22 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
 
   const refreshData = useCallback(async () => {
     if (!user) {
-      setCategories([]); setTransactions([]); setScheduled([]);
+      setCategories([]); setSubcategories([]); setTransactions([]); setScheduled([]);
       setCards([]); setInvoices([]); setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const [cats, txns, sched, crds, invs] = await Promise.all([
+      const [cats, subs, txns, sched, crds, invs] = await Promise.all([
         dataService.getCategories(),
+        dataService.getSubcategories().catch(() => [] as Subcategory[]),
         dataService.getTransactions(),
         dataService.getScheduledTransactions(),
         dataService.getCards(),
         dataService.getInvoices(),
       ]);
       setCategories(cats);
+      setSubcategories(subs);
       setTransactions(txns);
       setScheduled(sched);
       setCards(crds);
@@ -93,6 +101,12 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   const addCategory = async (data: Omit<Category, 'id'>) => { await dataService.addCategory(data); await refreshData(); };
   const updateCategory = async (id: string, data: Partial<Category>) => { await dataService.updateCategory(id, data); await refreshData(); };
   const deleteCategory = async (id: string) => { await dataService.deleteCategory(id); await refreshData(); };
+
+  // ─── Subcategory actions ───────────────────────────────────────────────────
+
+  const addSubcategory = async (data: Omit<Subcategory, 'id'>) => { await dataService.addSubcategory(data); await refreshData(); };
+  const updateSubcategory = async (id: string, data: Partial<Omit<Subcategory, 'id'>>) => { await dataService.updateSubcategory(id, data); await refreshData(); };
+  const deleteSubcategory = async (id: string) => { await dataService.deleteSubcategory(id); await refreshData(); };
 
   // ─── Transaction actions ───────────────────────────────────────────────────
 
@@ -126,9 +140,10 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <FinanceContext.Provider value={{
-      categories, transactions, scheduled, cards, invoices, settings, loading,
+      categories, subcategories, transactions, scheduled, cards, invoices, settings, loading,
       refreshData,
       addCategory, updateCategory, deleteCategory,
+      addSubcategory, updateSubcategory, deleteSubcategory,
       addTransaction, updateTransaction, deleteTransaction,
       addScheduled, updateScheduled, deleteScheduled,
       addCard, updateCard, deleteCard, payInvoice,

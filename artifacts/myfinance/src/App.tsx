@@ -66,8 +66,7 @@ function SetupNeeded() {
           Depois de adicionar os secrets, reinicie o servidor para o app funcionar.
         </p>
         <p className="text-xs text-muted-foreground">
-          Execute também <code className="bg-muted px-1 rounded">supabase/schema.sql</code>{' '}e{' '}
-          <code className="bg-muted px-1 rounded">supabase/schema_v2_cards.sql</code> no SQL Editor do Supabase.
+          Execute também <code className="bg-muted px-1 rounded">supabase/schema.sql</code> no SQL Editor do Supabase.
         </p>
       </div>
     </div>

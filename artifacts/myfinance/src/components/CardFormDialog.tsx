@@ -70,7 +70,8 @@ export const CardFormDialog = ({ open, onOpenChange, card }: CardFormProps) => {
       }
       onOpenChange(false);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Erro ao salvar cartão');
+      const { extractErrorMessage } = await import('@/services/dataService');
+      toast.error(`Erro ao salvar cartão: ${extractErrorMessage(err)}`);
     }
   };
 

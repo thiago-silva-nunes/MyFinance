@@ -18,6 +18,7 @@ const transactionSchema = z.object({
   amount: z.coerce.number().min(0.01, 'Valor deve ser maior que zero'),
   type: z.enum(['income', 'expense']),
   categoryId: z.string().min(1, 'Categoria é obrigatória'),
+  subcategoryId: z.string().optional(),
   date: z.string().min(1, 'Data é obrigatória'),
   status: z.enum(['paid', 'pending']),
   paymentMethod: z.string().optional(),
@@ -33,12 +34,13 @@ interface TransactionFormProps {
 }
 
 export const TransactionFormDialog = ({ open, onOpenChange, transaction, defaultCardId }: TransactionFormProps) => {
-  const { categories, cards, addTransaction, updateTransaction } = useFinance();
+  const { categories, subcategories, cards, addTransaction, updateTransaction } = useFinance();
 
   const form = useForm<z.infer<typeof transactionSchema>>({
     resolver: zodResolver(transactionSchema),
     defaultValues: {
       description: '', amount: 0, type: 'expense', categoryId: '',
+      subcategoryId: '',
       date: new Date().toISOString().split('T')[0], status: 'paid',
       paymentMethod: defaultCardId ? 'cartao_credito' : 'dinheiro_pix_debito',
       cardId: defaultCardId ?? '',
@@ -53,6 +55,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
         form.reset({
           description: transaction.description, amount: transaction.amount,
           type: transaction.type, categoryId: transaction.categoryId,
+          subcategoryId: transaction.subcategoryId ?? '',
           date: transaction.date.split('T')[0], status: transaction.status,
           paymentMethod: isCard ? 'cartao_credito' : (transaction.paymentMethod || 'dinheiro_pix_debito'),
           cardId: transaction.cardId ?? '',
@@ -61,6 +64,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
       } else {
         form.reset({
           description: '', amount: 0, type: 'expense', categoryId: '',
+          subcategoryId: '',
           date: new Date().toISOString().split('T')[0], status: 'paid',
           paymentMethod: defaultCardId ? 'cartao_credito' : 'dinheiro_pix_debito',
           cardId: defaultCardId ?? '',
@@ -72,15 +76,24 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
 
   const type = form.watch('type');
   const paymentMethod = form.watch('paymentMethod');
+  const selectedCategoryId = form.watch('categoryId');
   const isCardPayment = type === 'expense' && paymentMethod === 'cartao_credito';
   const filteredCategories = categories.filter(c => c.type === type);
+
+  // Subcategories belonging to the selected category
+  const availableSubcategories = selectedCategoryId
+    ? subcategories.filter(s => s.categoryId === selectedCategoryId)
+    : [];
 
   const onSubmit = async (data: z.infer<typeof transactionSchema>) => {
     try {
       const cardId = isCardPayment && data.cardId ? data.cardId : undefined;
+      const subcategoryId = data.subcategoryId && data.subcategoryId !== '' ? data.subcategoryId : undefined;
       const payload: Omit<Transaction, 'id'> = {
         description: data.description, amount: data.amount, type: data.type,
-        categoryId: data.categoryId, date: data.date, status: data.status,
+        categoryId: data.categoryId,
+        subcategoryId,
+        date: data.date, status: data.status,
         paymentMethod: data.paymentMethod || undefined,
         cardId, notes: data.notes || undefined,
       };
@@ -93,7 +106,8 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
       }
       onOpenChange(false);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Erro ao salvar transação');
+      const { extractErrorMessage } = await import('@/services/dataService');
+      toast.error(`Erro ao salvar transação: ${extractErrorMessage(err)}`);
     }
   };
 
@@ -113,12 +127,12 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                   <FormLabel>Tipo</FormLabel>
                   <div className="flex gap-2">
                     <Button type="button" variant={field.value === 'expense' ? 'destructive' : 'outline'}
-                      className="w-full" onClick={() => { field.onChange('expense'); form.setValue('categoryId', ''); }}>
+                      className="w-full" onClick={() => { field.onChange('expense'); form.setValue('categoryId', ''); form.setValue('subcategoryId', ''); }}>
                       Despesa
                     </Button>
                     <Button type="button" variant={field.value === 'income' ? 'default' : 'outline'}
                       className="w-full bg-success text-success-foreground hover:bg-success/90"
-                      onClick={() => { field.onChange('income'); form.setValue('categoryId', ''); form.setValue('paymentMethod', 'dinheiro_pix_debito'); }}>
+                      onClick={() => { field.onChange('income'); form.setValue('categoryId', ''); form.setValue('subcategoryId', ''); form.setValue('paymentMethod', 'dinheiro_pix_debito'); }}>
                       Receita
                     </Button>
                   </div>
@@ -156,25 +170,53 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
               <FormField control={form.control} name="categoryId" render={({ field }) => (
                 <FormItem className="col-span-2">
                   <FormLabel>Categoria</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select onValueChange={(v) => { field.onChange(v); form.setValue('subcategoryId', ''); }} value={field.value}>
                     <FormControl><SelectTrigger><SelectValue placeholder="Selecione uma categoria" /></SelectTrigger></FormControl>
                     <SelectContent>
-                      {filteredCategories.map((cat) => {
-                        const Icon = getIcon(cat.icon);
-                        return (
-                          <SelectItem key={cat.id} value={cat.id}>
-                            <div className="flex items-center gap-2">
-                              <Icon className="w-4 h-4" style={{ color: cat.color }} />
-                              {cat.name}
-                            </div>
-                          </SelectItem>
-                        );
-                      })}
+                      {filteredCategories.length === 0 ? (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">
+                          Nenhuma categoria cadastrada para este tipo.
+                        </div>
+                      ) : (
+                        filteredCategories.map((cat) => {
+                          const Icon = getIcon(cat.icon);
+                          return (
+                            <SelectItem key={cat.id} value={cat.id}>
+                              <div className="flex items-center gap-2">
+                                <Icon className="w-4 h-4" style={{ color: cat.color }} />
+                                {cat.name}
+                              </div>
+                            </SelectItem>
+                          );
+                        })
+                      )}
                     </SelectContent>
                   </Select>
                   <FormMessage />
                 </FormItem>
               )} />
+
+              {/* Subcategory — only when a category with subcategories is selected */}
+              {availableSubcategories.length > 0 && (
+                <FormField control={form.control} name="subcategoryId" render={({ field }) => (
+                  <FormItem className="col-span-2">
+                    <FormLabel>Subcategoria <span className="text-muted-foreground font-normal">(opcional)</span></FormLabel>
+                    <Select
+                        onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
+                        value={field.value && field.value !== '' ? field.value : '__none__'}
+                      >
+                        <FormControl><SelectTrigger><SelectValue placeholder="Selecione uma subcategoria" /></SelectTrigger></FormControl>
+                        <SelectContent>
+                          <SelectItem value="__none__">— Nenhuma —</SelectItem>
+                          {availableSubcategories.map((sub) => (
+                            <SelectItem key={sub.id} value={sub.id}>{sub.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              )}
 
               {/* Payment method — only for expenses */}
               {type === 'expense' && (

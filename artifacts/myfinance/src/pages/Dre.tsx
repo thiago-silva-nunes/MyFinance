@@ -73,33 +73,87 @@ const DRE_STRUCTURE = [
 ];
 
 interface DRETx { id: string; description: string; amount: number; date: string; }
-interface DRECat { categoryId: string; name: string; color: string; total: number; transactions: DRETx[]; }
+interface DRESub { subcategoryId: string; name: string; total: number; transactions: DRETx[]; }
+interface DRECat {
+  categoryId: string;
+  name: string;
+  color: string;
+  total: number;
+  subcategories: DRESub[];        // transactions grouped by subcategory (if any)
+  ungroupedTransactions: DRETx[]; // transactions with no subcategory
+}
 interface DREGroup { id: string; label: string; operator: '+' | '-'; total: number; categories: DRECat[]; }
 
-function buildDRE(transactions: ReturnType<typeof useFinance>['transactions'], categories: ReturnType<typeof useFinance>['categories'], start: string, end: string): DREGroup[] {
+type SubcategoryList = ReturnType<typeof useFinance>['subcategories'];
+
+// groupId → categoryId → (subcategoryId | '__none__') → DRETx[]
+type DREBuckets = Record<string, Record<string, Record<string, DRETx[]>>>;
+
+const UNGROUPED_KEY = '__none__';
+
+function buildDRE(
+  transactions: ReturnType<typeof useFinance>['transactions'],
+  categories: ReturnType<typeof useFinance>['categories'],
+  subcategories: SubcategoryList,
+  start: string,
+  end: string
+): DREGroup[] {
   const inRange = transactions.filter(tx => tx.date >= start && tx.date <= end);
   const catMap = new Map(categories.map(c => [c.id, c]));
+  const subMap = new Map(subcategories.map(s => [s.id, s]));
 
-  const grouped: Record<string, Record<string, DRETx[]>> = {};
+  // group → category → (subcategoryId | UNGROUPED_KEY) → txs
+  const grouped: DREBuckets = {};
+
   for (const tx of inRange) {
     const cat = catMap.get(tx.categoryId);
     if (!cat) continue;
-    const group = cat.dreGroup ?? (cat.type === 'income' ? 'receita' : 'despesa_variavel');
-    if (!grouped[group]) grouped[group] = {};
-    if (!grouped[group][cat.id]) grouped[group][cat.id] = [];
-    grouped[group][cat.id].push({ id: tx.id, description: tx.description, amount: tx.amount, date: tx.date });
+    const groupId = cat.dreGroup ?? (cat.type === 'income' ? 'receita' : 'despesa_variavel');
+
+    if (!grouped[groupId]) grouped[groupId] = {};
+    if (!grouped[groupId][cat.id]) grouped[groupId][cat.id] = {};
+
+    const subKey = tx.subcategoryId ?? UNGROUPED_KEY;
+    if (!grouped[groupId][cat.id][subKey]) grouped[groupId][cat.id][subKey] = [];
+    grouped[groupId][cat.id][subKey].push({
+      id: tx.id, description: tx.description, amount: tx.amount, date: tx.date
+    });
   }
 
   return DRE_STRUCTURE.map(g => {
     const catEntries = grouped[g.id] ?? {};
-    const cats: DRECat[] = Object.entries(catEntries).map(([catId, txs]) => {
+
+    const cats: DRECat[] = Object.entries(catEntries).map(([catId, subBuckets]) => {
       const cat = catMap.get(catId);
+
+      const subs: DRESub[] = Object.entries(subBuckets)
+        .filter(([subId]) => subId !== UNGROUPED_KEY)
+        .map(([subId, txs]) => {
+          const sub = subMap.get(subId);
+          return {
+            subcategoryId: subId,
+            name: sub?.name ?? 'Subcategoria',
+            total: txs.reduce((s, t) => s + t.amount, 0),
+            transactions: txs.slice().sort((a, b) => b.date.localeCompare(a.date)),
+          };
+        })
+        .sort((a, b) => b.total - a.total);
+
+      const ungrouped: DRETx[] = (subBuckets[UNGROUPED_KEY] ?? [])
+        .slice()
+        .sort((a, b) => b.date.localeCompare(a.date));
+
+      const total =
+        subs.reduce((s, sub) => s + sub.total, 0) +
+        ungrouped.reduce((s, t) => s + t.amount, 0);
+
       return {
         categoryId: catId,
         name: cat?.name ?? 'Desconhecida',
         color: cat?.color ?? '#64748b',
-        total: txs.reduce((s, t) => s + t.amount, 0),
-        transactions: txs.sort((a, b) => b.date.localeCompare(a.date)),
+        total,
+        subcategories: subs,
+        ungroupedTransactions: ungrouped,
       };
     }).sort((a, b) => b.total - a.total);
 
@@ -128,18 +182,19 @@ const PERIOD_OPTIONS: { value: Period; label: string }[] = [
 ];
 
 export const Dre = () => {
-  const { transactions, categories } = useFinance();
+  const { transactions, categories, subcategories } = useFinance();
   const [period, setPeriod] = useState<Period>('current_month');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['receita', 'despesa_variavel']));
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
+  const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set());
 
   const currentRange = getPeriodRange(period, customStart, customEnd);
   const prevRange = getPreviousPeriodRange(period, currentRange);
 
-  const currentDRE = useMemo(() => buildDRE(transactions, categories, currentRange.start, currentRange.end), [transactions, categories, currentRange.start, currentRange.end]);
-  const prevDRE    = useMemo(() => buildDRE(transactions, categories, prevRange.start, prevRange.end), [transactions, categories, prevRange.start, prevRange.end]);
+  const currentDRE = useMemo(() => buildDRE(transactions, categories, subcategories, currentRange.start, currentRange.end), [transactions, categories, subcategories, currentRange.start, currentRange.end]);
+  const prevDRE    = useMemo(() => buildDRE(transactions, categories, subcategories, prevRange.start, prevRange.end), [transactions, categories, subcategories, prevRange.start, prevRange.end]);
 
   const prevTotals = useMemo(() => Object.fromEntries(prevDRE.map(g => [g.id, g.total])), [prevDRE]);
 
@@ -167,16 +222,17 @@ export const Dre = () => {
       const d = new Date(now.getFullYear(), now.getMonth() - 11 + i, 1);
       const y = d.getFullYear(), m = d.getMonth() + 1;
       const start = `${y}-${pad(m)}-01`, end = `${y}-${pad(m)}-${lastDay(y, m)}`;
-      const monthly = buildDRE(transactions, categories, start, end);
+      const monthly = buildDRE(transactions, categories, subcategories, start, end);
       const rec = monthly.find(g => g.id === 'receita')?.total ?? 0;
       const ded = monthly.find(g => g.id === 'deducao')?.total ?? 0;
       const exp = (monthly.find(g => g.id === 'despesa_fixa')?.total ?? 0) + (monthly.find(g => g.id === 'despesa_variavel')?.total ?? 0) + (monthly.find(g => g.id === 'despesa_financeira')?.total ?? 0);
       return { month: MONTHS[d.getMonth()], value: (rec - ded) - exp };
     });
-  }, [transactions, categories]);
+  }, [transactions, categories, subcategories]);
 
   const toggleGroup = (id: string) => setExpandedGroups(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleCat   = (id: string) => setExpandedCats(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleSub   = (id: string) => setExpandedSubs(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   return (
     <div className="space-y-6 pb-20 md:pb-0">
@@ -260,30 +316,73 @@ export const Dre = () => {
                   {isExpanded && group.categories.map(cat => {
                     const catKey = `${group.id}:${cat.categoryId}`;
                     const isCatExpanded = expandedCats.has(catKey);
+                    const hasSubs = cat.subcategories.length > 0;
+
                     return (
                       <React.Fragment key={cat.categoryId}>
+                        {/* Category row */}
                         <button
                           className="w-full flex items-center justify-between px-4 py-2.5 pl-10 hover:bg-muted/20 transition-colors text-left bg-muted/10"
                           onClick={() => toggleCat(catKey)}
                         >
                           <div className="flex items-center gap-2">
                             {isCatExpanded ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
-                            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cat.color }} />
+                            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
                             <span className="text-sm">{cat.name}</span>
+                            {hasSubs && (
+                              <Badge variant="secondary" className="text-[10px] h-4 px-1.5">{cat.subcategories.length} sub</Badge>
+                            )}
                           </div>
                           <span className="text-sm font-medium w-28 text-right">{formatCurrency(cat.total)}</span>
                         </button>
 
-                        {/* Transactions */}
-                        {isCatExpanded && cat.transactions.map(tx => (
-                          <div key={tx.id} className="flex items-center justify-between px-4 py-2 pl-16 bg-muted/5 text-sm">
-                            <div className="flex-1 min-w-0">
-                              <span className="text-muted-foreground truncate">{tx.description}</span>
-                              <span className="text-xs text-muted-foreground/60 ml-2">{tx.date}</span>
-                            </div>
-                            <span className="text-muted-foreground w-28 text-right">{formatCurrency(tx.amount)}</span>
-                          </div>
-                        ))}
+                        {isCatExpanded && (
+                          <>
+                            {/* Subcategory rows */}
+                            {cat.subcategories.map(sub => {
+                              const subKey = `${catKey}:${sub.subcategoryId}`;
+                              const isSubExpanded = expandedSubs.has(subKey);
+                              return (
+                                <React.Fragment key={sub.subcategoryId}>
+                                  {/* Subcategory header */}
+                                  <button
+                                    className="w-full flex items-center justify-between px-4 py-2 pl-16 hover:bg-muted/15 transition-colors text-left bg-muted/5"
+                                    onClick={() => toggleSub(subKey)}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      {isSubExpanded ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                                      <span className="text-xs text-muted-foreground">↳</span>
+                                      <span className="text-sm text-muted-foreground">{sub.name}</span>
+                                    </div>
+                                    <span className="text-sm font-medium text-muted-foreground w-28 text-right">{formatCurrency(sub.total)}</span>
+                                  </button>
+
+                                  {/* Subcategory transactions */}
+                                  {isSubExpanded && sub.transactions.map(tx => (
+                                    <div key={tx.id} className="flex items-center justify-between px-4 py-1.5 pl-[72px] bg-muted/5 text-sm border-l-2 border-muted ml-16">
+                                      <div className="flex-1 min-w-0">
+                                        <span className="text-muted-foreground truncate text-xs">{tx.description}</span>
+                                        <span className="text-xs text-muted-foreground/60 ml-2">{tx.date}</span>
+                                      </div>
+                                      <span className="text-muted-foreground w-28 text-right text-xs">{formatCurrency(tx.amount)}</span>
+                                    </div>
+                                  ))}
+                                </React.Fragment>
+                              );
+                            })}
+
+                            {/* Ungrouped transactions (no subcategory) */}
+                            {cat.ungroupedTransactions.map(tx => (
+                              <div key={tx.id} className="flex items-center justify-between px-4 py-2 pl-16 bg-muted/5 text-sm">
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-muted-foreground truncate">{tx.description}</span>
+                                  <span className="text-xs text-muted-foreground/60 ml-2">{tx.date}</span>
+                                </div>
+                                <span className="text-muted-foreground w-28 text-right">{formatCurrency(tx.amount)}</span>
+                              </div>
+                            ))}
+                          </>
+                        )}
                       </React.Fragment>
                     );
                   })}

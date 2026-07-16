@@ -7,12 +7,19 @@ export interface Category {
   dreGroup?: string; // 'receita' | 'despesa_fixa' | 'despesa_variavel' | 'despesa_financeira' | 'deducao'
 }
 
+export interface Subcategory {
+  id: string;
+  categoryId: string;
+  name: string;
+}
+
 export interface Transaction {
   id: string;
   description: string;
   amount: number;
   type: 'income' | 'expense';
   categoryId: string;
+  subcategoryId?: string;    // optional subcategory
   date: string;
   status: 'paid' | 'pending';
   paymentMethod?: string;

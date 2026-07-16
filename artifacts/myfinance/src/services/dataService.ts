@@ -1,7 +1,27 @@
 import { supabase } from '@/lib/supabase';
-import type { Category, Transaction, ScheduledTransaction, CreditCard, Invoice } from '../data/mockData';
+import type { Category, Subcategory, Transaction, ScheduledTransaction, CreditCard, Invoice } from '../data/mockData';
 
 const SETTINGS_KEY = 'myfinance_settings';
+
+// ─── Supabase error helper ────────────────────────────────────────────────────
+
+function extractErrorMessage(err: unknown): string {
+  if (!err) return 'Erro desconhecido';
+  if (typeof err === 'object') {
+    // PostgrestError shape: { message, code, details, hint }
+    const e = err as Record<string, unknown>;
+    const parts: string[] = [];
+    if (typeof e.message === 'string') parts.push(e.message);
+    if (typeof e.details === 'string' && e.details) parts.push(`Detalhes: ${e.details}`);
+    if (typeof e.hint === 'string' && e.hint) parts.push(`Dica: ${e.hint}`);
+    if (typeof e.code === 'string' && e.code) parts.push(`(código ${e.code})`);
+    if (parts.length) return parts.join(' — ');
+  }
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+export { extractErrorMessage };
 
 // ─── Invoice helpers ──────────────────────────────────────────────────────────
 
@@ -156,9 +176,12 @@ export const dataService = {
   // ─── Categories ────────────────────────────────────────────────────────────
 
   getCategories: async (): Promise<Category[]> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('categories')
       .select('id, name, type, color, icon, dre_group')
+      .eq('user_id', user.id)
       .order('created_at');
     if (error) throw error;
     return (data ?? []).map((row) => ({
@@ -207,12 +230,62 @@ export const dataService = {
     if (error) throw error;
   },
 
+  // ─── Subcategories ─────────────────────────────────────────────────────────
+
+  getSubcategories: async (): Promise<Subcategory[]> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    const { data, error } = await supabase
+      .from('subcategories')
+      .select('id, category_id, name')
+      .eq('user_id', user.id)
+      .order('created_at');
+    if (error) throw error;
+    return (data ?? []).map((row) => ({
+      id: row.id,
+      categoryId: row.category_id,
+      name: row.name,
+    }));
+  },
+
+  addSubcategory: async (sub: Omit<Subcategory, 'id'>): Promise<Subcategory> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    const { data, error } = await supabase
+      .from('subcategories')
+      .insert({ user_id: user.id, category_id: sub.categoryId, name: sub.name })
+      .select('id, category_id, name')
+      .single();
+    if (error) throw error;
+    return { id: data.id, categoryId: data.category_id, name: data.name };
+  },
+
+  updateSubcategory: async (id: string, sub: Partial<Omit<Subcategory, 'id'>>): Promise<Subcategory> => {
+    const updates: Record<string, unknown> = {};
+    if (sub.name !== undefined) updates.name = sub.name;
+    if (sub.categoryId !== undefined) updates.category_id = sub.categoryId;
+    const { data, error } = await supabase
+      .from('subcategories')
+      .update(updates)
+      .eq('id', id)
+      .select('id, category_id, name')
+      .single();
+    if (error) throw error;
+    return { id: data.id, categoryId: data.category_id, name: data.name };
+  },
+
+  deleteSubcategory: async (id: string): Promise<void> => {
+    // Nullify subcategory_id on transactions before deleting (DB ON DELETE SET NULL handles this)
+    const { error } = await supabase.from('subcategories').delete().eq('id', id);
+    if (error) throw error;
+  },
+
   // ─── Transactions ──────────────────────────────────────────────────────────
 
   getTransactions: async (): Promise<Transaction[]> => {
     const { data, error } = await supabase
       .from('transactions')
-      .select('id, description, amount, type, category_id, date, status, payment_method, notes, scheduled_id, card_id, reference_month')
+      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, reference_month')
       .order('date', { ascending: false });
     if (error) throw error;
     return (data ?? []).map((row) => ({
@@ -221,6 +294,7 @@ export const dataService = {
       amount: Number(row.amount),
       type: row.type as 'income' | 'expense',
       categoryId: row.category_id,
+      subcategoryId: row.subcategory_id ?? undefined,
       date: row.date,
       status: row.status as 'paid' | 'pending',
       paymentMethod: row.payment_method ?? undefined,
@@ -252,6 +326,7 @@ export const dataService = {
         amount: tx.amount,
         type: tx.type,
         category_id: tx.categoryId,
+        subcategory_id: tx.subcategoryId ?? null,
         date: tx.date.split('T')[0],
         status: tx.status,
         payment_method: tx.paymentMethod ?? null,
@@ -260,7 +335,7 @@ export const dataService = {
         card_id: tx.cardId ?? null,
         reference_month: referenceMonth,
       })
-      .select('id, description, amount, type, category_id, date, status, payment_method, notes, scheduled_id, card_id, reference_month')
+      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, reference_month')
       .single();
     if (error) throw error;
 
@@ -276,7 +351,9 @@ export const dataService = {
 
     return {
       id: data.id, description: data.description, amount: Number(data.amount),
-      type: data.type as 'income' | 'expense', categoryId: data.category_id, date: data.date,
+      type: data.type as 'income' | 'expense', categoryId: data.category_id,
+      subcategoryId: data.subcategory_id ?? undefined,
+      date: data.date,
       status: data.status as 'paid' | 'pending', paymentMethod: data.payment_method ?? undefined,
       notes: data.notes ?? undefined, scheduledId: data.scheduled_id ?? undefined,
       cardId: data.card_id ?? undefined, referenceMonth: data.reference_month ?? undefined,
@@ -296,6 +373,7 @@ export const dataService = {
     if (tx.amount !== undefined) updates.amount = tx.amount;
     if (tx.type !== undefined) updates.type = tx.type;
     if (tx.categoryId !== undefined) updates.category_id = tx.categoryId;
+    if (tx.subcategoryId !== undefined) updates.subcategory_id = tx.subcategoryId ?? null;
     if (tx.status !== undefined) updates.status = tx.status;
     if (tx.paymentMethod !== undefined) updates.payment_method = tx.paymentMethod;
     if (tx.notes !== undefined) updates.notes = tx.notes;
@@ -321,7 +399,7 @@ export const dataService = {
       .from('transactions')
       .update(updates)
       .eq('id', id)
-      .select('id, description, amount, type, category_id, date, status, payment_method, notes, scheduled_id, card_id, reference_month')
+      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, reference_month')
       .single();
     if (error) throw error;
 
@@ -339,7 +417,9 @@ export const dataService = {
 
     return {
       id: data.id, description: data.description, amount: Number(data.amount),
-      type: data.type as 'income' | 'expense', categoryId: data.category_id, date: data.date,
+      type: data.type as 'income' | 'expense', categoryId: data.category_id,
+      subcategoryId: data.subcategory_id ?? undefined,
+      date: data.date,
       status: data.status as 'paid' | 'pending', paymentMethod: data.payment_method ?? undefined,
       notes: data.notes ?? undefined, scheduledId: data.scheduled_id ?? undefined,
       cardId: data.card_id ?? undefined, referenceMonth: data.reference_month ?? undefined,
@@ -447,8 +527,14 @@ export const dataService = {
     const { data, error } = await supabase
       .from('credit_cards')
       .insert({
-        user_id: user.id, name: card.name, bank: card.bank, brand: card.brand,
-        limit_amount: card.limit, closing_day: card.closingDay, due_day: card.dueDay, color: card.color,
+        user_id: user.id,
+        name: card.name,
+        bank: card.bank,
+        brand: card.brand,
+        limit_amount: card.limit,
+        closing_day: Number(card.closingDay),
+        due_day: Number(card.dueDay),
+        color: card.color,
       })
       .select('id, name, bank, brand, limit_amount, closing_day, due_day, color')
       .single();
@@ -462,8 +548,8 @@ export const dataService = {
     if (card.bank !== undefined) updates.bank = card.bank;
     if (card.brand !== undefined) updates.brand = card.brand;
     if (card.limit !== undefined) updates.limit_amount = card.limit;
-    if (card.closingDay !== undefined) updates.closing_day = card.closingDay;
-    if (card.dueDay !== undefined) updates.due_day = card.dueDay;
+    if (card.closingDay !== undefined) updates.closing_day = Number(card.closingDay);
+    if (card.dueDay !== undefined) updates.due_day = Number(card.dueDay);
     if (card.color !== undefined) updates.color = card.color;
 
     const { data, error } = await supabase

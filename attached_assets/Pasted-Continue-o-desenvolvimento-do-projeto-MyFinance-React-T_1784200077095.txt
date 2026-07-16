@@ -1,0 +1,40 @@
+Continue o desenvolvimento do projeto MyFinance (React + TypeScript + Vite + Tailwind + Supabase), adicionando suporte a SUBCATEGORIAS, mantendo total integração com o DRE e corrigindo os bugs reportados abaixo antes de prosseguir.
+
+CORREÇÕES PRIORITÁRIAS (fazer antes de subcategorias):
+1. Ao salvar um novo Cartão de Crédito, está aparecendo o erro genérico "Erro ao salvar cartão". Investigue e corrija a causa raiz — provavelmente relacionada a: (a) o insert não estar enviando o user_id da sessão autenticada, violando a política de Row Level Security da tabela credit_cards; (b) o valor do campo "brand" (bandeira) não corresponder exatamente aos valores aceitos pelo check constraint ('visa','mastercard','elo','amex','other'); (c) os campos closing_day/due_day sendo enviados como string em vez de número. Exiba mensagens de erro mais descritivas (não genéricas) no toast, incluindo a mensagem retornada pelo Supabase, para facilitar diagnóstico futuro.
+
+2. No formulário de Nova Transação, o campo "Categoria" aparece vazio (sem nenhuma opção para selecionar) quando o tipo é "Despesa". Investigue se a query de busca de categorias está filtrando corretamente por type = 'expense' e por user_id da sessão atual, e corrija para que as categorias cadastradas apareçam corretamente no dropdown, tanto para despesas quanto receitas.
+
+SUBCATEGORIAS:
+
+1. Adicione a tabela subcategories no Supabase:
+
+create table subcategories (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) not null,
+  category_id uuid references categories(id) not null,
+  name text not null,
+  created_at timestamp with time zone default now()
+);
+
+alter table subcategories enable row level security;
+
+create policy "Users manage their own subcategories"
+  on subcategories for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+2. Na tela de Categorias ("/categories"), permita que cada categoria seja expandida para mostrar e gerenciar suas subcategorias (CRUD completo: criar, editar, excluir subcategorias dentro de uma categoria).
+
+3. No formulário de lançamento (Nova Transação), após selecionar a categoria, exiba um segundo seletor opcional "Subcategoria", mostrando apenas as subcategorias pertencentes à categoria escolhida. Adicione o campo subcategory_id na tabela transactions (nullable, referenciando subcategories.id).
+
+4. Atualize a tela de Relatórios para permitir filtrar e visualizar gastos agrupados por subcategoria, além de por categoria.
+
+5. INTEGRAÇÃO COM O DRE:
+Na tela de DRE ("/dre"), a estrutura em árvore deve ganhar um nível adicional:
+grupo (ex: Despesas Variáveis) > categoria (ex: Lazer) > subcategoria (ex: Cinema, Streaming) > lançamentos individuais
+Uma categoria sem subcategorias definidas deve continuar funcionando normalmente (agrupando lançamentos direto nela, sem nível extra). Ao expandir uma categoria que tem subcategorias, mostre o subtotal de cada subcategoria antes dos lançamentos individuais.
+
+6. Ao editar uma categoria, se ela tiver subcategorias e lançamentos vinculados a alguma subcategoria que seja excluída, os lançamentos devem manter subcategory_id como null (não devem ser excluídos), mas continuam contabilizados corretamente na categoria "pai" dentro do DRE.
+
+Mantenha a consistência com o dataService.ts, tema visual e componentes shadcn/ui já usados no projeto.
