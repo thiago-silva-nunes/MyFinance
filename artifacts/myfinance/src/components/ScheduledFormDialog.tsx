@@ -78,21 +78,24 @@ export const ScheduledFormDialog = ({ open, onOpenChange, scheduled }: Scheduled
   const type = form.watch('type');
   const filteredCategories = categories.filter(c => c.type === type);
 
-  const onSubmit = (data: z.infer<typeof scheduledSchema>) => {
-    const payload = {
-      ...data,
-      startDate: new Date(data.startDate).toISOString(),
-      endDate: data.endDate ? new Date(data.endDate).toISOString() : undefined,
-    };
-
-    if (scheduled) {
-      updateScheduled(scheduled.id, payload);
-      toast.success('Transação recorrente atualizada');
-    } else {
-      addScheduled(payload);
-      toast.success('Transação recorrente adicionada');
+  const onSubmit = async (data: z.infer<typeof scheduledSchema>) => {
+    try {
+      const payload = {
+        ...data,
+        startDate: data.startDate,
+        endDate: data.endDate || undefined,
+      };
+      if (scheduled) {
+        await updateScheduled(scheduled.id, payload);
+        toast.success('Transação recorrente atualizada');
+      } else {
+        await addScheduled(payload);
+        toast.success('Transação recorrente adicionada');
+      }
+      onOpenChange(false);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao salvar recorrência');
     }
-    onOpenChange(false);
   };
 
   return (

@@ -60,15 +60,19 @@ export const CategoryFormDialog = ({ open, onOpenChange, category }: CategoryFor
     }
   }, [open, category, form]);
 
-  const onSubmit = (data: z.infer<typeof categorySchema>) => {
-    if (category) {
-      updateCategory(category.id, data);
-      toast.success('Categoria atualizada com sucesso');
-    } else {
-      addCategory(data);
-      toast.success('Categoria adicionada com sucesso');
+  const onSubmit = async (data: z.infer<typeof categorySchema>) => {
+    try {
+      if (category) {
+        await updateCategory(category.id, data);
+        toast.success('Categoria atualizada com sucesso');
+      } else {
+        await addCategory(data);
+        toast.success('Categoria adicionada com sucesso');
+      }
+      onOpenChange(false);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao salvar categoria');
     }
-    onOpenChange(false);
   };
 
   return (

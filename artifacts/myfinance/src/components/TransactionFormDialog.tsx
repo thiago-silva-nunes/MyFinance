@@ -74,20 +74,20 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction }: Trans
   const type = form.watch('type');
   const filteredCategories = categories.filter(c => c.type === type);
 
-  const onSubmit = (data: z.infer<typeof transactionSchema>) => {
-    const payload = {
-      ...data,
-      date: new Date(data.date).toISOString()
-    };
-
-    if (transaction) {
-      updateTransaction(transaction.id, payload);
-      toast.success('Transação atualizada com sucesso');
-    } else {
-      addTransaction(payload);
-      toast.success('Transação adicionada com sucesso');
+  const onSubmit = async (data: z.infer<typeof transactionSchema>) => {
+    try {
+      const payload = { ...data, date: data.date };
+      if (transaction) {
+        await updateTransaction(transaction.id, payload);
+        toast.success('Transação atualizada com sucesso');
+      } else {
+        await addTransaction(payload);
+        toast.success('Transação adicionada com sucesso');
+      }
+      onOpenChange(false);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao salvar transação');
     }
-    onOpenChange(false);
   };
 
   return (

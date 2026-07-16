@@ -1,10 +1,30 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useLocation } from 'wouter';
-import { LayoutDashboard, Receipt, Tags, CalendarClock, LineChart, Settings, Menu, X, Wallet } from 'lucide-react';
+import {
+  LayoutDashboard,
+  Receipt,
+  Tags,
+  CalendarClock,
+  LineChart,
+  Settings,
+  Wallet,
+  LogOut,
+  Plus,
+  MoreHorizontal,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useFinance } from '@/context/FinanceContext';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '@/context/AuthContext';
+import { TransactionFormDialog } from '@/components/TransactionFormDialog';
+import { toast } from 'sonner';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -16,18 +36,22 @@ const navItems = [
 
 export const Layout = ({ children }: { children: React.ReactNode }) => {
   const [location] = useLocation();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const { settings } = useFinance();
+  const { signOut } = useAuth();
+  const [addOpen, setAddOpen] = useState(false);
 
-  // Close mobile menu on route change
-  React.useEffect(() => {
-    setIsMobileMenuOpen(false);
-  }, [location]);
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+    } catch {
+      toast.error('Erro ao sair');
+    }
+  };
 
   return (
     <div className="flex min-h-[100dvh] w-full bg-background md:bg-muted/30">
-      
-      {/* Desktop Sidebar */}
+
+      {/* ── Desktop Sidebar ─────────────────────────────────────────────── */}
       <aside className="hidden md:flex flex-col w-64 border-r bg-card h-screen sticky top-0">
         <div className="p-6 flex items-center gap-3">
           <div className="bg-primary text-primary-foreground p-2 rounded-xl">
@@ -35,101 +59,134 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
           </div>
           <span className="font-bold text-xl tracking-tight">MyFinance</span>
         </div>
-        
+
         <nav className="flex-1 px-4 py-4 space-y-1">
           {navItems.map((item) => {
             const isActive = location === item.href;
             return (
-              <Link key={item.href} href={item.href} className={cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
-                isActive 
-                  ? "bg-primary/10 text-primary" 
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
-              )}>
-                <item.icon className={cn("w-5 h-5", isActive ? "text-primary" : "text-muted-foreground")} />
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                )}
+              >
+                <item.icon className={cn('w-5 h-5', isActive ? 'text-primary' : 'text-muted-foreground')} />
                 {item.label}
               </Link>
             );
           })}
         </nav>
-        
-        <div className="p-4 mt-auto">
-          <Link href="/settings" className={cn(
-            "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
-            location === '/settings' 
-              ? "bg-primary/10 text-primary" 
-              : "text-muted-foreground hover:bg-muted hover:text-foreground"
-          )}>
+
+        <div className="p-4 mt-auto space-y-1">
+          <Link
+            href="/settings"
+            className={cn(
+              'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+              location === '/settings'
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+            )}
+          >
             <Settings className="w-5 h-5" />
             Configurações
           </Link>
+          <button
+            onClick={handleSignOut}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors w-full"
+          >
+            <LogOut className="w-5 h-5" />
+            Sair
+          </button>
         </div>
       </aside>
 
-      {/* Mobile Topbar */}
-      <div className="md:hidden fixed top-0 w-full z-40 bg-card border-b px-4 h-16 flex items-center justify-between">
+      {/* ── Mobile Top Bar ──────────────────────────────────────────────── */}
+      <div className="md:hidden fixed top-0 w-full z-40 bg-card border-b px-4 h-14 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="bg-primary text-primary-foreground p-1.5 rounded-lg">
             <Wallet className="w-4 h-4" />
           </div>
           <span className="font-bold text-lg tracking-tight">MyFinance</span>
         </div>
-        <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
-          {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-        </Button>
+        {/* Page title based on location */}
+        <span className="text-sm font-medium text-muted-foreground">
+          {navItems.find((n) => n.href === location)?.label ?? (location === '/settings' ? 'Configurações' : '')}
+        </span>
       </div>
 
-      {/* Mobile Menu Dropdown */}
-      <AnimatePresence>
-        {isMobileMenuOpen && (
-          <motion.div 
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="md:hidden fixed top-16 left-0 w-full bg-card border-b z-30 shadow-lg"
-          >
-            <nav className="flex flex-col p-4 space-y-2">
-              {[...navItems, { href: '/settings', label: 'Configurações', icon: Settings }].map((item) => {
-                const isActive = location === item.href;
-                return (
-                  <Link key={item.href} href={item.href} className={cn(
-                    "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors",
-                    isActive 
-                      ? "bg-primary/10 text-primary" 
-                      : "text-muted-foreground hover:bg-muted"
-                  )}>
-                    <item.icon className="w-5 h-5" />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Main Content Area */}
-      <main className="flex-1 w-full flex flex-col min-h-0 md:min-h-screen pt-16 md:pt-0">
+      {/* ── Main Content ────────────────────────────────────────────────── */}
+      <main className="flex-1 w-full flex flex-col min-h-0 md:min-h-screen pt-14 md:pt-0 pb-20 md:pb-0">
         <div className="flex-1 p-4 md:p-8 max-w-6xl mx-auto w-full">
           {children}
         </div>
       </main>
 
-      {/* Mobile Bottom Tab Bar */}
-      <div className="md:hidden fixed bottom-0 w-full bg-card border-t z-40 pb-safe">
-        <div className="flex items-center justify-around p-2">
+      {/* ── Mobile FAB (Floating Action Button) ─────────────────────────── */}
+      <button
+        onClick={() => setAddOpen(true)}
+        className="md:hidden fixed bottom-[72px] right-4 z-50 bg-primary text-primary-foreground rounded-full w-14 h-14 flex items-center justify-center shadow-lg shadow-primary/30 active:scale-95 transition-transform"
+        aria-label="Adicionar lançamento"
+      >
+        <Plus className="w-7 h-7" />
+      </button>
+      <TransactionFormDialog open={addOpen} onOpenChange={setAddOpen} />
+
+      {/* ── Mobile Bottom Navigation ─────────────────────────────────────── */}
+      <div className="md:hidden fixed bottom-0 w-full bg-card border-t z-40 safe-area-pb">
+        <div className="flex items-center justify-around h-[60px]">
           {navItems.slice(0, 4).map((item) => {
             const isActive = location === item.href;
             return (
-              <Link key={item.href} href={item.href} className={cn(
-                "flex flex-col items-center justify-center p-2 rounded-lg min-w-[64px]",
-                isActive ? "text-primary" : "text-muted-foreground"
-              )}>
-                <item.icon className={cn("w-5 h-5 mb-1", isActive ? "fill-primary/20" : "")} />
-                <span className="text-[10px] font-medium">{item.label}</span>
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  'flex flex-col items-center justify-center gap-0.5 flex-1 h-full min-w-0 px-1',
+                  isActive ? 'text-primary' : 'text-muted-foreground',
+                )}
+              >
+                <item.icon className="w-5 h-5 shrink-0" />
+                <span className="text-[10px] font-medium truncate">{item.label}</span>
               </Link>
             );
           })}
+
+          {/* "Mais" menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                className={cn(
+                  'flex flex-col items-center justify-center gap-0.5 flex-1 h-full min-w-0 px-1',
+                  ['/reports', '/settings'].includes(location)
+                    ? 'text-primary'
+                    : 'text-muted-foreground',
+                )}
+              >
+                <MoreHorizontal className="w-5 h-5 shrink-0" />
+                <span className="text-[10px] font-medium">Mais</span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="mb-2">
+              <DropdownMenuItem asChild>
+                <Link href="/reports" className="flex items-center gap-2">
+                  <LineChart className="w-4 h-4" /> Relatórios
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/settings" className="flex items-center gap-2">
+                  <Settings className="w-4 h-4" /> Configurações
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:text-destructive">
+                <LogOut className="w-4 h-4 mr-2" /> Sair
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </div>
