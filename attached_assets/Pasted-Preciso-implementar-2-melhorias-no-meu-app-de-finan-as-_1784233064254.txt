@@ -1,0 +1,26 @@
+Preciso implementar 2 melhorias no meu app de finanças:
+1. FEATURE — Ícone de ajuda (?) explicando cada categoria do DRE
+Na tela de DRE (Estrutura do DRE), ao lado de cada linha/grupo (Receita Bruta, Deduções, Receita Líquida, Despesas Fixas, Despesas Variáveis, Despesas Financeiras, Resultado Líquido, Margem Líquida), adicione um pequeno ícone de interrogação (?) clicável ou com hover, que exiba um tooltip/popover explicando o que aquela categoria representa e o que é considerado nela. Sugestão de conteúdo para cada tooltip (ajuste conforme a lógica já implementada no dre_group do schema):
+
+Receita Bruta: soma de todas as entradas (transações do tipo income) no período, antes de qualquer dedução.
+Deduções: valores que reduzem a receita bruta para chegar à receita líquida (ex: impostos sobre receita, devoluções, cancelamentos) — categorias com dre_group = 'deducao'.
+Receita Líquida: Receita Bruta menos Deduções.
+Despesas Fixas: gastos recorrentes e previsíveis, que não variam com o volume de atividade (ex: aluguel, assinaturas, salário fixo) — categorias com dre_group = 'despesa_fixa'.
+Despesas Variáveis: gastos que oscilam conforme o consumo/atividade do mês (ex: alimentação, lazer, compras) — categorias com dre_group = 'despesa_variavel'.
+Despesas Financeiras: custos relacionados a juros, tarifas bancárias, encargos de cartão de crédito, empréstimos — categorias com dre_group = 'despesa_financeira'.
+Resultado Líquido: Receita Líquida menos todas as despesas (fixas + variáveis + financeiras). É o "lucro" ou "sobra" do período.
+Margem Líquida: percentual do Resultado Líquido em relação à Receita Líquida (Resultado Líquido / Receita Líquida × 100).
+
+Implemente isso com um componente reutilizável (ex: <InfoTooltip text="..." /> usando o componente de tooltip que já existe na lib de UI do projeto, tipo Radix/shadcn Tooltip), para não duplicar código em cada linha. Garanta que funcione tanto no desktop (hover) quanto no mobile (tap para abrir/fechar).
+2. FEATURE — Seleção múltipla e exclusão em lote na tela de Transações
+Na tela de Transações, adicione:
+
+Uma checkbox no início de cada linha da tabela (e uma checkbox no cabeçalho para "selecionar todos" os itens da página/filtro atual).
+Ao selecionar 1 ou mais transações, exibir uma barra de ação (ex: fixa no topo ou rodapé da tabela) mostrando quantos itens estão selecionados e um botão "Excluir selecionados".
+Ao clicar em excluir, mostrar um modal de confirmação informando quantas transações serão excluídas (ex: "Tem certeza que deseja excluir 5 transações? Essa ação não pode ser desfeita.").
+Implementar a exclusão em lote no backend (Supabase) de forma eficiente — usar um único delete com in (id, [...]) ao invés de N requisições separadas, uma por transação.
+Atenção especial a transações que fazem parte de um parcelamento (installment_group_id): se o usuário selecionar apenas algumas parcelas de um grupo, excluir normalmente só as selecionadas (sem forçar excluir o grupo inteiro nesse fluxo de seleção múltipla — esse comportamento de "excluir grupo inteiro" já existe separadamente na exclusão individual).
+Após excluir, atualizar a lista, os totais da tela e os dados do dashboard/DRE que dependem dessas transações.
+Adicionar um botão "Limpar seleção" para desmarcar tudo facilmente.
+
+Teste o fluxo completo: marcar várias transações (incluindo algumas parceladas e outras não), excluir em lote, e confirmar que a lista, os totais e o DRE refletem a exclusão corretamente. Teste também os tooltips do DRE em desktop e mobile.
