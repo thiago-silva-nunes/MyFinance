@@ -536,6 +536,34 @@ export const dataService = {
     }
   },
 
+  deleteTransactions: async (ids: string[]): Promise<void> => {
+    if (ids.length === 0) return;
+    // Capture card/month info before deletion for invoice recalc
+    const { data: rows } = await supabase
+      .from('transactions')
+      .select('card_id, reference_month')
+      .in('id', ids);
+
+    const { error } = await supabase.from('transactions').delete().in('id', ids);
+    if (error) throw error;
+
+    // Non-critical: recalc invoice totals for each affected card/month pair
+    const seen = new Set<string>();
+    for (const row of rows ?? []) {
+      if (row.card_id && row.reference_month) {
+        const key = `${row.card_id}__${row.reference_month}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          try {
+            await recalcInvoiceTotal(row.card_id, row.reference_month);
+          } catch (e) {
+            console.warn('[deleteTransactions] Falha ao recalcular fatura (não crítico):', e);
+          }
+        }
+      }
+    }
+  },
+
   deleteInstallmentGroup: async (groupId: string): Promise<void> => {
     const { data: rows, error: fetchErr } = await supabase
       .from('transactions')

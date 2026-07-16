@@ -28,6 +28,7 @@ interface FinanceContextType {
   addInstallments: (data: Omit<Transaction, 'id'>, totalInstallments: number) => Promise<void>;
   updateTransaction: (id: string, data: Partial<Transaction>) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
+  deleteTransactions: (ids: string[]) => Promise<void>;
   deleteInstallmentGroup: (groupId: string) => Promise<void>;
 
   addScheduled: (data: Omit<ScheduledTransaction, 'id'>) => Promise<void>;
@@ -186,6 +187,17 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const deleteTransactions = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    const affectedHasCard = transactions.some(t => ids.includes(t.id) && !!t.cardId);
+    await dataService.deleteTransactions(ids);
+    setTransactions(prev => prev.filter(t => !ids.includes(t.id)));
+    if (affectedHasCard) {
+      const invs = await dataService.getInvoices();
+      setInvoices(invs);
+    }
+  };
+
   const deleteInstallmentGroup = async (groupId: string) => {
     const hasCard = transactions.some(t => t.installmentGroupId === groupId && !!t.cardId);
     await dataService.deleteInstallmentGroup(groupId);
@@ -263,7 +275,7 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
       refreshData,
       addCategory, updateCategory, deleteCategory,
       addSubcategory, updateSubcategory, deleteSubcategory,
-      addTransaction, addInstallments, updateTransaction, deleteTransaction, deleteInstallmentGroup,
+      addTransaction, addInstallments, updateTransaction, deleteTransaction, deleteTransactions, deleteInstallmentGroup,
       addScheduled, updateScheduled, deleteScheduled,
       addCard, updateCard, deleteCard, payInvoice,
       addBudget, updateBudget, deleteBudget,

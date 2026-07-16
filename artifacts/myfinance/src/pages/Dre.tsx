@@ -7,10 +7,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine
-} from 'recharts';
-import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { Tooltip as RechartsTooltip, LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Minus, HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -64,6 +63,42 @@ function getPreviousPeriodRange(period: Period, current: { start: string; end: s
     }
   }
 }
+
+// ─── InfoTooltip ─────────────────────────────────────────────────────────────
+
+const InfoTooltip = ({ text }: { text: string }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <TooltipProvider delayDuration={0}>
+      <Tooltip open={open} onOpenChange={setOpen}>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex items-center justify-center w-5 h-5 rounded-full text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring shrink-0"
+            onClick={(e) => { e.stopPropagation(); setOpen(v => !v); }}
+            aria-label="Mais informações"
+          >
+            <HelpCircle className="w-3.5 h-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="max-w-[260px] text-xs leading-relaxed">
+          {text}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+};
+
+const DRE_TOOLTIPS: Record<string, string> = {
+  receita:            'Soma de todas as entradas (receitas) no período, antes de qualquer dedução.',
+  deducao:            'Valores que reduzem a receita bruta, como impostos sobre receita, devoluções e cancelamentos.',
+  despesa_fixa:       'Gastos recorrentes e previsíveis que não variam com o volume do mês, como aluguel, assinaturas e salários fixos.',
+  despesa_variavel:   'Gastos que oscilam conforme o consumo do mês, como alimentação, lazer e compras.',
+  despesa_financeira: 'Custos relacionados a juros, tarifas bancárias, encargos de cartão de crédito e empréstimos.',
+  receita_liquida:    'Receita Bruta menos Deduções. O que sobra após descontar impostos e devoluções sobre a receita.',
+  resultado_liquido:  'Receita Líquida menos todas as despesas (fixas + variáveis + financeiras). O "lucro" ou sobra do período.',
+  margem_liquida:     'Percentual do Resultado Líquido em relação à Receita Bruta. Indica quanto de cada real recebido fica como resultado.',
+};
 
 const DRE_STRUCTURE = [
   { id: 'receita',            label: 'Receita Bruta',        operator: '+' as const },
@@ -307,6 +342,7 @@ export const Dre = () => {
                         <span className="text-muted-foreground mr-1.5">({group.operator})</span>
                         {group.label}
                       </span>
+                      {DRE_TOOLTIPS[group.id] && <InfoTooltip text={DRE_TOOLTIPS[group.id]} />}
                     </div>
                     <div className="flex items-center gap-3">
                       <Delta current={group.total} previous={prevTotal} />
@@ -390,7 +426,7 @@ export const Dre = () => {
                   {/* Computed subtotals after key groups */}
                   {group.id === 'deducao' && (
                     <div className="flex items-center justify-between px-4 py-3 bg-primary/5 font-semibold text-sm border-y">
-                      <span className="flex items-center gap-1.5"><Minus className="w-4 h-4" /> (=) Receita Líquida</span>
+                      <span className="flex items-center gap-1.5"><Minus className="w-4 h-4" /> (=) Receita Líquida <InfoTooltip text={DRE_TOOLTIPS.receita_liquida} /></span>
                       <div className="flex items-center gap-3">
                         <Delta current={receitaLiquida} previous={prevReceitaLiquida} />
                         <span className={cn('w-28 text-right', receitaLiquida >= 0 ? 'text-success' : 'text-destructive')}>{mask(receitaLiquida)}</span>
@@ -409,6 +445,7 @@ export const Dre = () => {
                   ? <TrendingUp className="w-5 h-5 text-success" />
                   : <TrendingDown className="w-5 h-5 text-destructive" />}
                 (=) Resultado Líquido
+                <InfoTooltip text={DRE_TOOLTIPS.resultado_liquido} />
               </span>
               <div className="flex items-center gap-3">
                 <Delta current={resultadoLiquido} previous={prevResultado} />
@@ -420,7 +457,7 @@ export const Dre = () => {
 
             {/* Margem líquida */}
             <div className="flex items-center justify-between px-4 py-2.5 bg-muted/20 text-sm">
-              <span className="text-muted-foreground">Margem Líquida</span>
+              <span className="text-muted-foreground flex items-center gap-1.5">Margem Líquida <InfoTooltip text={DRE_TOOLTIPS.margem_liquida} /></span>
               <span className={cn('font-semibold', margemLiquida >= 0 ? 'text-success' : 'text-destructive')}>
                 {hideValues ? '••••' : `${margemLiquida.toFixed(1)}%`}
               </span>
@@ -446,7 +483,7 @@ export const Dre = () => {
                   fontSize={11}
                   stroke="hsl(var(--muted-foreground))"
                 />
-                <Tooltip
+                <RechartsTooltip
                   formatter={(v: number) => [hideValues ? 'R$ ••••••' : formatCurrency(v), 'Resultado']}
                   contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }}
                   itemStyle={{ color: 'hsl(var(--foreground))' }}

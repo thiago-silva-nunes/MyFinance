@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useFinance } from '@/context/FinanceContext';
 import { usePrivacy } from '@/context/PrivacyContext';
 import { formatCurrency, formatShortDate } from '@/lib/utils';
@@ -7,11 +7,12 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { getIcon } from '@/components/IconMap';
 import { TransactionFormDialog } from '@/components/TransactionFormDialog';
 import { Transaction } from '@/data/mockData';
-import { Search, Plus, Edit2, Trash2, CheckCircle, Layers } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, CheckCircle, Layers, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface InstallmentDeleteTarget {
@@ -23,7 +24,7 @@ interface InstallmentDeleteTarget {
 }
 
 export const Transactions = () => {
-  const { transactions, categories, deleteTransaction, deleteInstallmentGroup, updateTransaction } = useFinance();
+  const { transactions, categories, deleteTransaction, deleteTransactions, deleteInstallmentGroup, updateTransaction } = useFinance();
   const { hideValues } = usePrivacy();
   const mask = (amount: number) => hideValues ? 'R$ ••••••' : formatCurrency(amount);
 
@@ -36,6 +37,11 @@ export const Transactions = () => {
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [installmentDeleteTarget, setInstallmentDeleteTarget] = useState<InstallmentDeleteTarget | null>(null);
 
+  // ── Batch selection ──────────────────────────────────────────────────────
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
   const filteredTransactions = useMemo(() => {
     return transactions
       .filter(t => {
@@ -47,6 +53,43 @@ export const Transactions = () => {
       })
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [transactions, searchTerm, typeFilter, categoryFilter, statusFilter]);
+
+  // Clear selection whenever filters or data change
+  useEffect(() => { setSelectedIds(new Set()); }, [searchTerm, typeFilter, categoryFilter, statusFilter]);
+
+  const allSelected = filteredTransactions.length > 0 && filteredTransactions.every(t => selectedIds.has(t.id));
+  const someSelected = filteredTransactions.some(t => selectedIds.has(t.id));
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredTransactions.map(t => t.id)));
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    setIsBulkDeleting(true);
+    try {
+      const ids = [...selectedIds];
+      await deleteTransactions(ids);
+      toast.success(`${ids.length} transaç${ids.length === 1 ? 'ão excluída' : 'ões excluídas'}`);
+      setSelectedIds(new Set());
+      setBulkDeleteOpen(false);
+    } catch (err) {
+      toast.error('Erro ao excluir transações');
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
 
   const handleEdit = (transaction: Transaction) => {
     setEditingTransaction(transaction);
@@ -105,11 +148,9 @@ export const Transactions = () => {
               className="pl-9"
             />
           </div>
-          
+
           <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger>
-              <SelectValue placeholder="Tipo" />
-            </SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="Tipo" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os tipos</SelectItem>
               <SelectItem value="income">Receita</SelectItem>
@@ -118,9 +159,7 @@ export const Transactions = () => {
           </Select>
 
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger>
-              <SelectValue placeholder="Categoria" />
-            </SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="Categoria" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas categorias</SelectItem>
               {categories.map(c => (
@@ -130,9 +169,7 @@ export const Transactions = () => {
           </Select>
 
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger>
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos status</SelectItem>
               <SelectItem value="paid">Pago</SelectItem>
@@ -141,10 +178,36 @@ export const Transactions = () => {
           </Select>
         </div>
 
+        {/* Bulk action bar */}
+        {someSelected && (
+          <div className="flex items-center justify-between bg-primary/10 border border-primary/20 rounded-lg px-4 py-2.5 gap-3">
+            <span className="text-sm font-medium">
+              {selectedIds.size} selecionada{selectedIds.size !== 1 ? 's' : ''}
+            </span>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>
+                Limpar seleção
+              </Button>
+              <Button variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
+                <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                Excluir selecionadas
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allSelected}
+                    onCheckedChange={toggleSelectAll}
+                    aria-label="Selecionar todas"
+                    className={someSelected && !allSelected ? 'opacity-60' : ''}
+                  />
+                </TableHead>
                 <TableHead>Data</TableHead>
                 <TableHead>Descrição</TableHead>
                 <TableHead>Categoria</TableHead>
@@ -156,7 +219,7 @@ export const Transactions = () => {
             <TableBody>
               {filteredTransactions.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                     Nenhuma transação encontrada.
                   </TableCell>
                 </TableRow>
@@ -165,8 +228,16 @@ export const Transactions = () => {
                   const cat = categories.find(c => c.id === t.categoryId);
                   const Icon = getIcon(cat?.icon || 'more-horizontal');
                   const isInstallment = !!(t.installmentGroupId && t.installmentNumber && t.installmentTotal);
+                  const isSelected = selectedIds.has(t.id);
                   return (
-                    <TableRow key={t.id}>
+                    <TableRow key={t.id} className={isSelected ? 'bg-primary/5' : ''}>
+                      <TableCell>
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={() => toggleSelect(t.id)}
+                          aria-label={`Selecionar ${t.description}`}
+                        />
+                      </TableCell>
                       <TableCell className="whitespace-nowrap">{formatShortDate(t.date)}</TableCell>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-1.5">
@@ -219,10 +290,10 @@ export const Transactions = () => {
         </div>
       </div>
 
-      <TransactionFormDialog 
-        open={isFormOpen} 
-        onOpenChange={setIsFormOpen} 
-        transaction={editingTransaction} 
+      <TransactionFormDialog
+        open={isFormOpen}
+        onOpenChange={setIsFormOpen}
+        transaction={editingTransaction}
       />
 
       {/* Installment delete dialog */}
@@ -264,6 +335,29 @@ export const Transactions = () => {
               }}
             >
               Todas ({installmentDeleteTarget?.total}x)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk delete confirmation dialog */}
+      <Dialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Excluir {selectedIds.size} transaç{selectedIds.size === 1 ? 'ão' : 'ões'}?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Tem certeza que deseja excluir{' '}
+            <strong>{selectedIds.size} transaç{selectedIds.size === 1 ? 'ão' : 'ões'}</strong>?
+            {' '}Essa ação não pode ser desfeita.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDeleteOpen(false)} disabled={isBulkDeleting}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" onClick={handleBulkDelete} disabled={isBulkDeleting}>
+              {isBulkDeleting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Excluir {selectedIds.size}
             </Button>
           </DialogFooter>
         </DialogContent>
