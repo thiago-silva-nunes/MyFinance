@@ -117,7 +117,17 @@ export const CardFormDialog = ({ open, onOpenChange, card }: CardFormProps) => {
               <FormField control={form.control} name="limit" render={({ field }) => (
                 <FormItem className="col-span-2">
                   <FormLabel>Limite total (R$)</FormLabel>
-                  <FormControl><Input type="number" step="0.01" min="0" placeholder="5000.00" {...field} /></FormControl>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="5000.00"
+                      {...field}
+                      value={field.value === 0 ? '' : field.value}
+                      onChange={(e) => field.onChange(e.target.valueAsNumber || 0)}
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )} />

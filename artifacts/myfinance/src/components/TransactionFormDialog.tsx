@@ -152,7 +152,17 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
               <FormField control={form.control} name="amount" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Valor (R$)</FormLabel>
-                  <FormControl><Input type="number" step="0.01" min="0" placeholder="0.00" {...field} /></FormControl>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                      {...field}
+                      value={field.value === 0 ? '' : field.value}
+                      onChange={(e) => field.onChange(e.target.valueAsNumber || 0)}
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )} />

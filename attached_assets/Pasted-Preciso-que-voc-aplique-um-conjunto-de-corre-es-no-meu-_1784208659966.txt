@@ -1,0 +1,30 @@
+Preciso que você aplique um conjunto de correções no meu projeto (React + Supabase) e verifique o estado atual do banco antes de assumir que precisa recriar tudo, porque algumas tabelas já podem ter sido criadas parcialmente em tentativas anteriores.
+1. Corrigir supabase/schema.sql
+No bloco de migration no final do arquivo, há um erro de sintaxe: do $ ... end $; deveria ser do $$ ... end $$; (PostgreSQL exige dois cifrões para abrir/fechar blocos do). Corrija isso.
+Esse erro fazia a transação inteira do script sofrer rollback quando executada no SQL Editor do Supabase — inclusive os create table de categories, subcategories, credit_cards, invoices etc. Por isso os erros de "categoria não salva" e "cartão dá PGRST205 — could not find table 'public.credit_cards'".
+Depois de corrigir, garanta que o script inteiro é idempotente e seguro de rodar de novo, já que algumas tabelas podem já existir parcialmente:
+
+Todas as create table já usam if not exists — confirme que continuam assim.
+Todas as create policy já usam drop policy if exists antes — confirme que continuam assim.
+Para as colunas adicionadas via migration (card_id, reference_month, subcategory_id), mantenha as checagens de information_schema.columns para não tentar adicionar coluna duplicada.
+Se necessário, adicione também um alter table ... enable row level security idempotente (isso já é seguro por natureza, mas confirme).
+
+2. Verificar o estado real do banco antes de rodar
+Antes de simplesmente instruir a rodar o script do zero, gere também uma query de diagnóstico que eu possa rodar no SQL Editor do Supabase para checar quais das tabelas abaixo já existem e quais colunas elas têm:
+
+categories, subcategories, transactions, scheduled_transactions, credit_cards, invoices
+
+Algo como uma query em information_schema.tables e information_schema.columns que me mostre um resumo antes de eu rodar o schema corrigido. Isso evita que eu rode o script "às cegas" achando que vai recriar tudo do zero.
+3. Corrigir bug do campo de valor em CardFormDialog.tsx
+O campo limit (Limite total) é type="number" iniciando em 0. Por ser um input controlado, digitar sobre o zero concatena os dígitos ("05", "0100" etc.) em vez de substituir. Corrija para: campo vazio quando o valor for 0, e use e.target.valueAsNumber || 0 no onChange.
+4. Corrigir o mesmo bug em TransactionFormDialog.tsx
+O campo amount (Valor) tem o mesmo problema. Aplique a mesma correção.
+5. Depois de aplicar tudo
+
+Rode a query de diagnóstico do item 2 primeiro e me mostre o resultado.
+Rode o schema.sql corrigido no SQL Editor do Supabase.
+Force o reload do cache do PostgREST: Settings → API → Reload schema, ou rode NOTIFY pgrst, 'reload schema';.
+Faça o deploy novamente com os dois formulários corrigidos.
+Teste criando uma categoria, uma subcategoria, um cartão de crédito e uma transação, para confirmar que tudo salva sem erro e que o campo de valor não gruda mais o zero.
+
+Se encontrar o arquivo schema_v2_cards.sql redundante no projeto, me avise antes de mexer nele — só quero remover/consolidar se você confirmar que não há nada nele que o schema.sql já não cubra.
