@@ -1,0 +1,72 @@
+Preciso de 3 melhorias no MyFinance:
+
+═══════════════════════════════════════
+1) PERFORMANCE — delays ao abrir telas e ao lançar
+═══════════════════════════════════════
+Diagnóstico primeiro: verifique em FinanceContext.tsx se toda ação de escrita
+(addCategory, addTransaction, addInstallments, updateTransaction, deleteTransaction,
+addCard, addBudget, etc.) chama `await refreshData()` no final, e se `refreshData()` refaz
+o fetch de TODAS as entidades (categories, subcategories, transactions, scheduled, cards,
+invoices, budgets) mesmo quando a ação só afetou uma delas.
+
+Se for esse o caso, otimize assim:
+- Troque o padrão "mutate + refetch tudo" por atualização otimista do estado local: cada
+  função de dataService que faz insert/update/delete já retorna a linha afetada (ou o id
+  no delete) — use esse retorno para atualizar o array correspondente no state do contexto
+  (ex: `setCategories(prev => [...prev, novaCategoria])`) em vez de rechamar refreshData().
+- Só recarregue de fato do banco as entidades que realmente mudam em cascata. Ex: lançar uma
+  transação em cartão de crédito afeta transactions E invoices (por causa do recalculo de
+  fatura) — nesse caso, refetch só transactions + invoices, não categories/subcategories/cards/
+  budgets, que não mudaram.
+- Categorias, subcategorias e cartões mudam raramente — não precisam ser recarregadas a cada
+  lançamento de transação.
+- Mantenha refreshData() completo apenas para o carregamento inicial (login/F5) e para um botão
+  manual de "atualizar", se existir.
+- Verifique se há índices no Supabase nas colunas mais filtradas: transactions(user_id,
+  reference_month), transactions(user_id, card_id), transactions(user_id, category_id),
+  budgets(user_id). Se não houver, crie via SQL (create index if not exists ...) e me dê o SQL
+  para eu rodar no Supabase.
+- Nos diálogos (TransactionFormDialog, Budgets dialog, etc.), garanta que o loading não trave a
+  UI: mostre um spinner só no botão de salvar, não bloqueie a interação com o resto do form
+  enquanto os dados de categorias/cartões (que já devem estar em cache no contexto) são exibidos.
+
+Teste ao final: abrir "Nova Transação" deve ser instantâneo (sem esperar fetch), e lançar uma
+transação simples deve fechar o diálogo e atualizar a lista em menos de 1s perceptível.
+
+═══════════════════════════════════════
+2) Forma de pagamento — separar Dinheiro / PIX / Débito
+═══════════════════════════════════════
+Hoje existe uma única opção "Dinheiro / PIX / Débito" (valor interno provavelmente
+'dinheiro_pix_debito'). Quero 3 opções independentes e selecionáveis separadamente:
+- Dinheiro
+- PIX
+- Débito
+- Cartão de Crédito (mantém como está, continua acionando o fluxo de cartão/parcelamento)
+
+Faça isso em TransactionFormDialog.tsx (schema zod do campo paymentMethod e o <Select>) e em
+qualquer outro lugar que filtre/exiba paymentMethod (relatórios, DRE, filtros da tela de
+Transações, ícones por forma de pagamento). Sugestão de valores internos: 'dinheiro', 'pix',
+'debito', 'cartao_credito'.
+
+Para não perder o histórico: transações antigas gravadas com 'dinheiro_pix_debito' devem
+continuar sendo exibidas corretamente (trate esse valor legado como um label genérico
+"Dinheiro/PIX/Débito" nas telas que listam, já que não temos como saber qual dos três era na
+época) — não precisa migrar os dados antigos, só garantir que não quebra a exibição.
+
+═══════════════════════════════════════
+3) Subcategoria — aparecer assim que a categoria for selecionada
+═══════════════════════════════════════
+Verifique o comportamento atual em TransactionFormDialog.tsx: ao selecionar uma categoria que
+possui subcategorias cadastradas, o campo de subcategoria deve aparecer IMEDIATAMENTE (sem
+delay, sem precisar fechar/reabrir o form), já que subcategories já está carregado no contexto
+(não deveria exigir fetch novo). Se hoje já funciona mas com atraso perceptível, é sintoma do
+mesmo problema do item 1 (contexto sendo recarregado à toa). Se a categoria não tiver
+subcategorias, o campo deve continuar oculto. Adicione uma transição suave (fade/slide curto)
+ao aparecer o campo, e deixe claro no label que é opcional ("Subcategoria (opcional)").
+
+Ao final, teste o fluxo completo: selecionar categoria "Transporte" (ou qualquer uma com
+subcategorias cadastradas) e confirmar que o campo de subcategoria some/aparece na hora, sem
+travar a tela.
+
+Depois de aplicar tudo, rode o projeto, teste os 3 pontos manualmente e faça commit com
+mensagem clara.
