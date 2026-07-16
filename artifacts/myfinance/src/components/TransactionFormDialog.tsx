@@ -3,6 +3,7 @@ import { useFinance } from '@/context/FinanceContext';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
@@ -11,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { getIcon } from '@/components/IconMap';
 import { toast } from 'sonner';
 import { Transaction } from '@/data/mockData';
-import { CreditCard, Info } from 'lucide-react';
+import { CreditCard, Info, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const transactionSchema = z.object({
@@ -45,7 +46,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
       description: '', amount: 0, type: 'expense', categoryId: '',
       subcategoryId: '',
       date: new Date().toISOString().split('T')[0], status: 'paid',
-      paymentMethod: defaultCardId ? 'cartao_credito' : 'dinheiro_pix_debito',
+      paymentMethod: defaultCardId ? 'cartao_credito' : 'dinheiro',
       cardId: defaultCardId ?? '',
       notes: '',
       purchaseType: 'avista',
@@ -62,7 +63,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
           type: transaction.type, categoryId: transaction.categoryId,
           subcategoryId: transaction.subcategoryId ?? '',
           date: transaction.date.split('T')[0], status: transaction.status,
-          paymentMethod: isCard ? 'cartao_credito' : (transaction.paymentMethod || 'dinheiro_pix_debito'),
+          paymentMethod: isCard ? 'cartao_credito' : (transaction.paymentMethod || 'dinheiro'),
           cardId: transaction.cardId ?? '',
           notes: transaction.notes || '',
           purchaseType: 'avista',
@@ -73,7 +74,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
           description: '', amount: 0, type: 'expense', categoryId: '',
           subcategoryId: '',
           date: new Date().toISOString().split('T')[0], status: 'paid',
-          paymentMethod: defaultCardId ? 'cartao_credito' : 'dinheiro_pix_debito',
+          paymentMethod: defaultCardId ? 'cartao_credito' : 'dinheiro',
           cardId: defaultCardId ?? '',
           notes: '',
           purchaseType: 'avista',
@@ -166,7 +167,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                         field.onChange('income');
                         form.setValue('categoryId', '');
                         form.setValue('subcategoryId', '');
-                        form.setValue('paymentMethod', 'dinheiro_pix_debito');
+                        form.setValue('paymentMethod', 'dinheiro');
                       }}
                       className={cn(
                         'flex-1 h-9 px-3 rounded-md border text-sm font-medium transition-colors',
@@ -250,27 +251,39 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                 </FormItem>
               )} />
 
-              {/* Subcategory — only when a category with subcategories is selected */}
-              {availableSubcategories.length > 0 && (
-                <FormField control={form.control} name="subcategoryId" render={({ field }) => (
-                  <FormItem className="col-span-2">
-                    <FormLabel>Subcategoria <span className="text-muted-foreground font-normal">(opcional)</span></FormLabel>
-                    <Select
-                      onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
-                      value={field.value && field.value !== '' ? field.value : '__none__'}
-                    >
-                      <FormControl><SelectTrigger><SelectValue placeholder="Selecione uma subcategoria" /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="__none__">— Nenhuma —</SelectItem>
-                        {availableSubcategories.map((sub) => (
-                          <SelectItem key={sub.id} value={sub.id}>{sub.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              )}
+              {/* Subcategory — animated, only when a category with subcategories is selected */}
+              <AnimatePresence>
+                {availableSubcategories.length > 0 && (
+                  <motion.div
+                    key="subcategory-field"
+                    className="col-span-2"
+                    initial={{ opacity: 0, y: -6, height: 0 }}
+                    animate={{ opacity: 1, y: 0, height: 'auto' }}
+                    exit={{ opacity: 0, y: -6, height: 0 }}
+                    transition={{ duration: 0.15, ease: 'easeOut' }}
+                    style={{ overflow: 'hidden' }}
+                  >
+                    <FormField control={form.control} name="subcategoryId" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Subcategoria <span className="text-muted-foreground font-normal">(opcional)</span></FormLabel>
+                        <Select
+                          onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
+                          value={field.value && field.value !== '' ? field.value : '__none__'}
+                        >
+                          <FormControl><SelectTrigger><SelectValue placeholder="Selecione uma subcategoria" /></SelectTrigger></FormControl>
+                          <SelectContent>
+                            <SelectItem value="__none__">— Nenhuma —</SelectItem>
+                            {availableSubcategories.map((sub) => (
+                              <SelectItem key={sub.id} value={sub.id}>{sub.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Payment method — only for expenses */}
               {type === 'expense' && (
@@ -283,7 +296,13 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                     }} value={field.value}>
                       <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                       <SelectContent>
-                        <SelectItem value="dinheiro_pix_debito">Dinheiro / PIX / Débito</SelectItem>
+                        {/* Legacy value — displayed only when editing old transactions */}
+                        {field.value === 'dinheiro_pix_debito' && (
+                          <SelectItem value="dinheiro_pix_debito">Dinheiro / PIX / Débito (legado)</SelectItem>
+                        )}
+                        <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                        <SelectItem value="pix">PIX</SelectItem>
+                        <SelectItem value="debito">Débito</SelectItem>
                         <SelectItem value="cartao_credito">
                           <div className="flex items-center gap-2"><CreditCard className="w-4 h-4" /> Cartão de Crédito</div>
                         </SelectItem>
@@ -384,9 +403,10 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
             </div>
 
             <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-              <Button type="submit">
-                {isNewInstallment ? `Lançar parcelado` : 'Salvar'}
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={form.formState.isSubmitting}>Cancelar</Button>
+              <Button type="submit" disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {isNewInstallment ? 'Lançar parcelado' : 'Salvar'}
               </Button>
             </DialogFooter>
           </form>

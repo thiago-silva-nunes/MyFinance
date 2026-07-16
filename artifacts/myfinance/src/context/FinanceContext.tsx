@@ -106,50 +106,145 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => { refreshData(); }, [refreshData]);
 
-  // ─── Category actions ──────────────────────────────────────────────────────
+  // ─── Partial refresh helpers ───────────────────────────────────────────────
 
-  const addCategory = async (data: Omit<Category, 'id'>) => { await dataService.addCategory(data); await refreshData(); };
-  const updateCategory = async (id: string, data: Partial<Category>) => { await dataService.updateCategory(id, data); await refreshData(); };
-  const deleteCategory = async (id: string) => { await dataService.deleteCategory(id); await refreshData(); };
+  /** Refetch only transactions + invoices — used after card-related writes that trigger server-side recalcInvoiceTotal. */
+  const refreshTransactionsAndInvoices = useCallback(async () => {
+    const [txns, invs] = await Promise.all([
+      dataService.getTransactions(),
+      dataService.getInvoices(),
+    ]);
+    setTransactions(txns);
+    setInvoices(invs);
+  }, []);
 
-  // ─── Subcategory actions ───────────────────────────────────────────────────
+  // ─── Category actions — optimistic ────────────────────────────────────────
 
-  const addSubcategory = async (data: Omit<Subcategory, 'id'>) => { await dataService.addSubcategory(data); await refreshData(); };
-  const updateSubcategory = async (id: string, data: Partial<Omit<Subcategory, 'id'>>) => { await dataService.updateSubcategory(id, data); await refreshData(); };
-  const deleteSubcategory = async (id: string) => { await dataService.deleteSubcategory(id); await refreshData(); };
+  const addCategory = async (data: Omit<Category, 'id'>) => {
+    const created = await dataService.addCategory(data);
+    setCategories(prev => [...prev, created]);
+  };
+  const updateCategory = async (id: string, data: Partial<Category>) => {
+    const updated = await dataService.updateCategory(id, data);
+    setCategories(prev => prev.map(c => c.id === id ? updated : c));
+  };
+  const deleteCategory = async (id: string) => {
+    await dataService.deleteCategory(id);
+    setCategories(prev => prev.filter(c => c.id !== id));
+  };
+
+  // ─── Subcategory actions — optimistic ─────────────────────────────────────
+
+  const addSubcategory = async (data: Omit<Subcategory, 'id'>) => {
+    const created = await dataService.addSubcategory(data);
+    setSubcategories(prev => [...prev, created]);
+  };
+  const updateSubcategory = async (id: string, data: Partial<Omit<Subcategory, 'id'>>) => {
+    const updated = await dataService.updateSubcategory(id, data);
+    setSubcategories(prev => prev.map(s => s.id === id ? updated : s));
+  };
+  const deleteSubcategory = async (id: string) => {
+    await dataService.deleteSubcategory(id);
+    setSubcategories(prev => prev.filter(s => s.id !== id));
+  };
 
   // ─── Transaction actions ───────────────────────────────────────────────────
 
   const addTransaction = async (data: Omit<Transaction, 'id'>) => {
-    try { await dataService.addTransaction(data); } finally { await refreshData(); }
+    const created = await dataService.addTransaction(data);
+    setTransactions(prev => [created, ...prev]);
+    // If it's a card transaction, invoice totals were recalculated server-side
+    if (created.cardId) {
+      const invs = await dataService.getInvoices();
+      setInvoices(invs);
+    }
   };
+
   const addInstallments = async (data: Omit<Transaction, 'id'>, n: number) => {
-    try { await dataService.addInstallments(data, n); } finally { await refreshData(); }
+    // dataService doesn't return rows for installments — refetch transactions + invoices only
+    await dataService.addInstallments(data, n);
+    await refreshTransactionsAndInvoices();
   };
+
   const updateTransaction = async (id: string, data: Partial<Transaction>) => {
-    try { await dataService.updateTransaction(id, data); } finally { await refreshData(); }
+    const oldCardId = transactions.find(t => t.id === id)?.cardId;
+    const updated = await dataService.updateTransaction(id, data);
+    setTransactions(prev => prev.map(t => t.id === id ? updated : t));
+    if (updated.cardId || oldCardId) {
+      const invs = await dataService.getInvoices();
+      setInvoices(invs);
+    }
   };
-  const deleteTransaction = async (id: string) => { await dataService.deleteTransaction(id); await refreshData(); };
-  const deleteInstallmentGroup = async (groupId: string) => { await dataService.deleteInstallmentGroup(groupId); await refreshData(); };
 
-  // ─── Scheduled actions ─────────────────────────────────────────────────────
+  const deleteTransaction = async (id: string) => {
+    const existing = transactions.find(t => t.id === id);
+    await dataService.deleteTransaction(id);
+    setTransactions(prev => prev.filter(t => t.id !== id));
+    if (existing?.cardId) {
+      const invs = await dataService.getInvoices();
+      setInvoices(invs);
+    }
+  };
 
-  const addScheduled = async (data: Omit<ScheduledTransaction, 'id'>) => { await dataService.addScheduledTransaction(data); await refreshData(); };
-  const updateScheduled = async (id: string, data: Partial<ScheduledTransaction>) => { await dataService.updateScheduledTransaction(id, data); await refreshData(); };
-  const deleteScheduled = async (id: string) => { await dataService.deleteScheduledTransaction(id); await refreshData(); };
+  const deleteInstallmentGroup = async (groupId: string) => {
+    const hasCard = transactions.some(t => t.installmentGroupId === groupId && !!t.cardId);
+    await dataService.deleteInstallmentGroup(groupId);
+    setTransactions(prev => prev.filter(t => t.installmentGroupId !== groupId));
+    if (hasCard) {
+      const invs = await dataService.getInvoices();
+      setInvoices(invs);
+    }
+  };
 
-  // ─── Card actions ──────────────────────────────────────────────────────────
+  // ─── Scheduled actions — optimistic ───────────────────────────────────────
 
-  const addCard = async (data: Omit<CreditCard, 'id'>) => { await dataService.addCard(data); await refreshData(); };
-  const updateCard = async (id: string, data: Partial<CreditCard>) => { await dataService.updateCard(id, data); await refreshData(); };
-  const deleteCard = async (id: string) => { await dataService.deleteCard(id); await refreshData(); };
-  const payInvoice = async (invoice: Invoice, card: CreditCard) => { await dataService.payInvoice(invoice, card); await refreshData(); };
+  const addScheduled = async (data: Omit<ScheduledTransaction, 'id'>) => {
+    const created = await dataService.addScheduledTransaction(data);
+    setScheduled(prev => [...prev, created]);
+  };
+  const updateScheduled = async (id: string, data: Partial<ScheduledTransaction>) => {
+    const updated = await dataService.updateScheduledTransaction(id, data);
+    setScheduled(prev => prev.map(s => s.id === id ? updated : s));
+  };
+  const deleteScheduled = async (id: string) => {
+    await dataService.deleteScheduledTransaction(id);
+    setScheduled(prev => prev.filter(s => s.id !== id));
+  };
 
-  // ─── Budget actions ────────────────────────────────────────────────────────
+  // ─── Card actions — optimistic ─────────────────────────────────────────────
 
-  const addBudget = async (data: Omit<Budget, 'id'>) => { await dataService.addBudget(data); await refreshData(); };
-  const updateBudget = async (id: string, data: Partial<Budget>) => { await dataService.updateBudget(id, data); await refreshData(); };
-  const deleteBudget = async (id: string) => { await dataService.deleteBudget(id); await refreshData(); };
+  const addCard = async (data: Omit<CreditCard, 'id'>) => {
+    const created = await dataService.addCard(data);
+    setCards(prev => [...prev, created]);
+  };
+  const updateCard = async (id: string, data: Partial<CreditCard>) => {
+    const updated = await dataService.updateCard(id, data);
+    setCards(prev => prev.map(c => c.id === id ? updated : c));
+  };
+  const deleteCard = async (id: string) => {
+    await dataService.deleteCard(id);
+    setCards(prev => prev.filter(c => c.id !== id));
+  };
+  const payInvoice = async (invoice: Invoice, card: CreditCard) => {
+    // Creates a payment transaction + updates invoice status — refetch both
+    await dataService.payInvoice(invoice, card);
+    await refreshTransactionsAndInvoices();
+  };
+
+  // ─── Budget actions — optimistic ───────────────────────────────────────────
+
+  const addBudget = async (data: Omit<Budget, 'id'>) => {
+    const created = await dataService.addBudget(data);
+    setBudgets(prev => [...prev, created]);
+  };
+  const updateBudget = async (id: string, data: Partial<Budget>) => {
+    const updated = await dataService.updateBudget(id, data);
+    setBudgets(prev => prev.map(b => b.id === id ? updated : b));
+  };
+  const deleteBudget = async (id: string) => {
+    await dataService.deleteBudget(id);
+    setBudgets(prev => prev.filter(b => b.id !== id));
+  };
 
   // ─── Settings ──────────────────────────────────────────────────────────────
 
