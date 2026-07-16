@@ -1,0 +1,210 @@
+# MyFinance — Melhorias v3: Integração Supabase + PWA (App Instalável)
+
+Este documento complementa as especificações anteriores do MyFinance. Envie o prompt da seção 5 para o Replit continuar o desenvolvimento do projeto já existente.
+
+---
+
+## 1. Integração com Supabase
+
+### Objetivo
+Substituir a persistência em `localStorage` por um banco de dados real no Supabase, permitindo acesso aos dados de qualquer dispositivo, com login do usuário.
+
+### 1.1 Autenticação
+- Implementar login/cadastro via **Supabase Auth** (e-mail + senha, e opcionalmente login com Google)
+- Tela de Login (`/login`) e Cadastro (`/signup`)
+- Proteção de rotas: usuário não autenticado é redirecionado para `/login`
+- Sessão persistente (usuário continua logado ao reabrir o app)
+
+### 1.2 Estrutura das tabelas no Supabase
+
+```sql
+-- Categorias
+create table categories (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) not null,
+  name text not null,
+  type text check (type in ('income', 'expense')) not null,
+  color text not null,
+  icon text not null,
+  dre_group text check (dre_group in ('receita', 'despesa_fixa', 'despesa_variavel', 'despesa_financeira', 'deducao')) not null,
+  created_at timestamp with time zone default now()
+);
+
+-- Cartões de crédito
+create table credit_cards (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) not null,
+  name text not null,
+  bank text not null,
+  brand text check (brand in ('visa', 'mastercard', 'elo', 'amex', 'other')) not null,
+  credit_limit numeric not null,
+  closing_day int not null,
+  due_day int not null,
+  color text not null,
+  active boolean default true,
+  created_at timestamp with time zone default now()
+);
+
+-- Faturas
+create table invoices (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) not null,
+  card_id uuid references credit_cards(id) not null,
+  reference_month text not null,
+  closing_date date not null,
+  due_date date not null,
+  total_amount numeric default 0,
+  status text check (status in ('open', 'closed', 'paid', 'overdue')) default 'open',
+  created_at timestamp with time zone default now()
+);
+
+-- Lançamentos
+create table transactions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) not null,
+  description text not null,
+  amount numeric not null,
+  type text check (type in ('income', 'expense')) not null,
+  category_id uuid references categories(id) not null,
+  date date not null,
+  status text check (status in ('paid', 'pending')) default 'pending',
+  payment_method text,
+  card_id uuid references credit_cards(id),
+  invoice_id uuid references invoices(id),
+  notes text,
+  scheduled_id uuid,
+  created_at timestamp with time zone default now()
+);
+
+-- Lançamentos programados/recorrentes
+create table scheduled_transactions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) not null,
+  description text not null,
+  amount numeric not null,
+  type text check (type in ('income', 'expense')) not null,
+  category_id uuid references categories(id) not null,
+  start_date date not null,
+  end_date date,
+  frequency text check (frequency in ('once', 'daily', 'weekly', 'monthly', 'yearly')) not null,
+  active boolean default true,
+  created_at timestamp with time zone default now()
+);
+```
+
+### 1.3 Row Level Security (RLS)
+Ativar RLS em todas as tabelas, garantindo que cada usuário só acesse seus próprios dados:
+
+```sql
+alter table categories enable row level security;
+alter table credit_cards enable row level security;
+alter table invoices enable row level security;
+alter table transactions enable row level security;
+alter table scheduled_transactions enable row level security;
+
+create policy "Users manage their own data"
+  on categories for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+-- Repetir a mesma política (ajustando o nome) para as outras 4 tabelas
+```
+
+### 1.4 Camada de dados
+Substituir a implementação interna de `dataService.ts` (que hoje usa `localStorage`) por chamadas ao cliente Supabase (`@supabase/supabase-js`), mantendo **as mesmas assinaturas de função** já usadas pelos componentes, para não ser necessário alterar a UI.
+
+Variáveis de ambiente necessárias (a serem configuradas como Secrets no Replit e como Environment Variables no Cloudflare):
+```
+VITE_SUPABASE_URL=
+VITE_SUPABASE_ANON_KEY=
+```
+
+### 1.5 Migração dos dados mockados
+Ao final, os dados que hoje estão em `mockData.ts` devem servir apenas como **seed inicial opcional** (ex: um botão "Carregar dados de exemplo" nas Configurações), não mais como fonte de dados padrão.
+
+---
+
+## 2. Otimização Mobile + PWA (App Instalável)
+
+### Objetivo
+Fazer o MyFinance funcionar como um **PWA (Progressive Web App)**, podendo ser instalado a partir do Chrome (ou Safari no iOS) tanto no celular quanto no computador, com ícone próprio, abrindo em tela cheia como um app nativo.
+
+### 2.1 Requisitos técnicos
+- Criar `manifest.json` (ou `manifest.webmanifest`) com:
+  - `name`: "MyFinance"
+  - `short_name`: "MyFinance"
+  - `start_url`: "/"
+  - `display`: "standalone"
+  - `background_color` e `theme_color` alinhados à identidade visual do app
+  - `icons`: conjunto de ícones em pelo menos 192x192 e 512x512 (formato PNG, com uma versão "maskable" para Android)
+- Registrar um **Service Worker** básico para cache de assets estáticos (permitindo abrir o app mesmo com internet instável, e carregamento mais rápido)
+- Adicionar meta tags no `index.html` para suporte a "Add to Home Screen" no iOS (`apple-touch-icon`, `apple-mobile-web-app-capable`, etc.)
+- Configurar o Vite com o plugin `vite-plugin-pwa` para gerar automaticamente o manifest e o service worker
+
+### 2.2 Responsividade / UX mobile
+- Revisar todas as telas para funcionar bem em telas pequenas (360px a 480px de largura)
+- Trocar a sidebar de navegação (desktop) por um **menu inferior fixo (bottom navigation)** em telas mobile, com os itens principais: Dashboard, Lançamentos, Cartões, DRE, Mais
+- Formulários (criar lançamento, criar cartão, etc.) devem abrir em tela cheia no mobile, não em modal pequeno
+- Botão de "Adicionar lançamento" fixo e de fácil acesso (ex: botão flutuante, "+") em todas as telas principais
+- Gráficos dos Relatórios e DRE devem se ajustar/scrollar horizontalmente em telas pequenas sem quebrar o layout
+- Fontes e áreas de toque (botões, ícones) com tamanho mínimo adequado para uso com o dedo (mínimo 44x44px)
+
+### 2.3 Banner de instalação
+- Implementar um prompt customizado de instalação (usando o evento `beforeinstallprompt` no Android/Chrome) com uma mensagem amigável tipo "Instale o MyFinance no seu celular para acesso rápido"
+- Para iOS/Safari (que não dispara esse evento), exibir instruções visuais de como adicionar à tela de início manualmente (ícone de compartilhar → "Adicionar à Tela de Início")
+
+---
+
+## 3. Prompt Final para o Replit (copiar e colar)
+
+```
+Continue o desenvolvimento do projeto MyFinance (monorepo, app em artifacts/myfinance, React + TypeScript + Vite + Tailwind), implementando as duas frentes abaixo:
+
+FRENTE 1 — INTEGRAÇÃO COM SUPABASE
+
+1. Configure o cliente Supabase usando as variáveis de ambiente VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY (a serem fornecidas como Secrets).
+
+2. Implemente autenticação com Supabase Auth (e-mail/senha), com telas de Login ("/login") e Cadastro ("/signup"), proteção de rotas para usuários não autenticados, e persistência de sessão.
+
+3. Crie as seguintes tabelas no Supabase (gere o script SQL completo, incluindo Row Level Security com políticas restringindo cada usuário aos seus próprios dados via auth.uid() = user_id):
+   - categories (id, user_id, name, type, color, icon, dre_group, created_at)
+   - credit_cards (id, user_id, name, bank, brand, credit_limit, closing_day, due_day, color, active, created_at)
+   - invoices (id, user_id, card_id, reference_month, closing_date, due_date, total_amount, status, created_at)
+   - transactions (id, user_id, description, amount, type, category_id, date, status, payment_method, card_id, invoice_id, notes, scheduled_id, created_at)
+   - scheduled_transactions (id, user_id, description, amount, type, category_id, start_date, end_date, frequency, active, created_at)
+
+4. Refatore o arquivo dataService.ts para que todas as funções (getTransactions, addTransaction, updateTransaction, deleteTransaction, getCategories, addCategory, getCreditCards, addCreditCard, getScheduledTransactions, addScheduledTransaction, etc.) passem a usar o cliente Supabase em vez de localStorage, mantendo as mesmas assinaturas de função já usadas pelos componentes React, para não ser necessário alterar a interface.
+
+5. Transforme mockData.ts em um seed opcional: adicione um botão em Configurações chamado "Carregar dados de exemplo" que insere esses dados de exemplo no Supabase para o usuário logado, em vez de carregá-los automaticamente ao iniciar o app.
+
+FRENTE 2 — PWA (APP INSTALÁVEL) E OTIMIZAÇÃO MOBILE
+
+1. Instale e configure o plugin vite-plugin-pwa no projeto myfinance, gerando manifest.webmanifest com: name "MyFinance", short_name "MyFinance", display "standalone", theme_color e background_color combinando com a identidade visual do app, e ícones em 192x192 e 512x512 (incluindo versão maskable).
+
+2. Configure um Service Worker básico para cache de assets estáticos, permitindo carregamento rápido e uso básico offline (visualização dos últimos dados carregados).
+
+3. Adicione as meta tags necessárias no index.html para suporte a "Adicionar à Tela de Início" no iOS Safari (apple-touch-icon, apple-mobile-web-app-capable, apple-mobile-web-app-status-bar-style).
+
+4. Implemente um banner customizado de instalação usando o evento beforeinstallprompt (Android/Chrome), com uma mensagem convidando o usuário a instalar o app. Para iOS, exiba instruções visuais alternativas (compartilhar > Adicionar à Tela de Início), detectando o user agent.
+
+5. Otimize a interface para mobile:
+   - Substitua a sidebar de navegação por um menu inferior fixo (bottom navigation) em telas com largura menor que 768px, contendo: Dashboard, Lançamentos, Cartões, DRE, Mais.
+   - Formulários de criação/edição (lançamentos, cartões, categorias) devem abrir em tela cheia no mobile em vez de modais pequenos.
+   - Adicione um botão flutuante de "+" fixo no canto inferior direito nas telas principais para criação rápida de lançamentos.
+   - Garanta que todos os botões e áreas clicáveis tenham no mínimo 44x44px de área de toque.
+   - Ajuste os gráficos das telas de Relatórios e DRE para permitir scroll horizontal em telas pequenas sem quebrar o layout.
+
+Mantenha a consistência visual e de código já estabelecida no projeto (tema, cores, componentes shadcn/ui existentes).
+```
+
+---
+
+## 4. Próximos passos após aplicar esse prompt
+
+1. Criar o projeto no [supabase.com](https://supabase.com) e copiar a **URL** e a **anon key** (em Project Settings → API)
+2. Adicionar essas duas variáveis como **Secrets** no Replit (ícone de cadeado no painel lateral)
+3. Rodar o script SQL da seção 1.2 e 1.3 no **SQL Editor** do Supabase
+4. Adicionar as mesmas variáveis (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) como **Environment Variables** no Cloudflare Workers (Settings → Variables), já que o build acontece lá também
+5. Testar login/cadastro e a persistência dos dados
+
+Posso te ajudar a criar o projeto no Supabase e configurar essas variáveis passo a passo quando você chegar nessa etapa — é só chamar.
