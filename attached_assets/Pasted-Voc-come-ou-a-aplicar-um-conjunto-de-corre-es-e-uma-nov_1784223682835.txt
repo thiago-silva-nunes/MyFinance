@@ -1,0 +1,71 @@
+Você começou a aplicar um conjunto de correções e uma nova feature no MyFinance e parou no meio,
+sem terminar (nada foi commitado — "git status" mostra working tree clean e nenhum commit novo
+relacionado a isso). Antes de continuar, faça um diagnóstico do estado atual e depois complete
+o que faltar. NÃO recrie do zero o que já existir — apenas finalize.
+
+═══════════════════════════════════════
+PASSO 0 — Diagnóstico (faça isso primeiro e me diga o resultado)
+═══════════════════════════════════════
+Verifique e reporte, item por item:
+1. artifacts/myfinance/src/services/dataService.ts → a função addInstallments já separa o insert
+   crítico das transações do try/catch não crítico de ensureInvoice/recalcInvoiceTotal? addTransaction
+   e updateTransaction também foram ajustados da mesma forma?
+2. artifacts/myfinance/src/context/FinanceContext.tsx → addInstallments chama refreshData() mesmo
+   se uma etapa secundária falhar?
+3. artifacts/myfinance/src/components/TransactionFormDialog.tsx → o toast de sucesso e o fechamento
+   do diálogo funcionam corretamente após lançar parcelado?
+4. supabase/schema_v3_budgets.sql → existe? já foi executado no Supabase (a tabela `budgets` já
+   existe no banco)?
+5. dataService.ts → existem getBudgets/addBudget/updateBudget/deleteBudget?
+6. FinanceContext.tsx → budgets está exposto no contexto e carregado em refreshData?
+7. artifacts/myfinance/src/pages/Budgets.tsx → existe? está completa (lista, barra de progresso,
+   dialog de criar/editar, cores por % de uso)?
+8. App.tsx → rota "/orcamentos" foi adicionada?
+9. components/Layout.tsx → item de menu "Orçamentos" foi adicionado?
+10. pages/Dashboard.tsx → card "Orçamentos do mês" foi adicionado?
+
+═══════════════════════════════════════
+PASSO 1 — Complete o que estiver faltando ou incompleto
+═══════════════════════════════════════
+Use exatamente as especificações abaixo (mesmas do prompt anterior) para qualquer item que o
+diagnóstico do Passo 0 mostrar como ausente, parcial ou quebrado:
+
+BUG DO PARCELAMENTO:
+- Em addInstallments, o loop `for (const refMonth of affectedMonths) { ensureInvoice; recalcInvoiceTotal }`
+  deve rodar dentro de try/catch por mês, apenas com console.warn em caso de erro, sem relançar —
+  o insert das transações (etapa crítica) já deve ter sido bem-sucedido antes desse loop e não pode
+  ser afetado por falha nele.
+- O mesmo padrão (separar insert/update crítico de recálculo de invoice não crítico) em
+  addTransaction e updateTransaction.
+- FinanceContext.addInstallments deve chamar refreshData() sempre, inclusive em finally.
+- TransactionFormDialog.onSubmit deve fechar o diálogo e mostrar toast de sucesso ao lançar
+  parcelado sem erro real de insert.
+
+FEATURE DE ORÇAMENTO:
+- Tabela `budgets` (id, user_id, category_id, name, amount, recurrence 'mensal'|'pontual',
+  reference_month nullable, active, created_at) com RLS por user_id, em
+  supabase/schema_v3_budgets.sql. Se a tabela já existir no banco, não recrie — apenas garanta
+  que o arquivo SQL documente a criação (com `create table if not exists`).
+- Tipo Budget em mockData.ts / types.
+- CRUD completo em dataService.ts (getBudgets, addBudget, updateBudget, deleteBudget), seguindo o
+  padrão de camelCase<->snake_case já usado nas outras entidades.
+- Exposição no FinanceContext.tsx.
+- Página Budgets.tsx na rota "/orcamentos": lista orçamentos por categoria, calcula gasto real
+  (mensal = soma de despesas da categoria no mês corrente; pontual = soma restrita ao
+  reference_month do orçamento), barra de progresso (verde <80%, amarelo 80-99%, vermelho >=100%
+  com aviso de "orçamento estourado" mostrando valor e % excedente), dialog de criar/editar
+  (nome, categoria, valor, recorrência, mês de referência quando pontual), editar/excluir.
+- Item de menu "Orçamentos" em Layout.tsx e rota em App.tsx.
+- Card "Orçamentos do mês" no Dashboard com as categorias mais próximas do limite e link para
+  "/orcamentos".
+
+═══════════════════════════════════════
+PASSO 2 — Finalize
+═══════════════════════════════════════
+1. Rode o projeto e teste manualmente: lançar uma compra parcelada em 6x confirma sucesso e
+   atualiza a lista sem F5; criar um orçamento mensal para "Lazer", lançar uma despesa nessa
+   categoria e ver a barra de progresso mudar de cor corretamente ao passar de 80% e 100%.
+2. Corrija quaisquer erros de tipo/lint que aparecerem.
+3. Faça commit de tudo com uma mensagem clara, por exemplo:
+   "fix: corrige falso erro no parcelamento + feature: orçamento mensal por categoria"
+4. Me diga ao final quais itens do diagnóstico do Passo 0 estavam faltando e o que você completou.
