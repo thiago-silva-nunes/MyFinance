@@ -1,0 +1,20 @@
+Preciso de 2 melhorias envolvendo as contas bancárias (banks) que já implementamos:
+1. FEATURE — Exibir contas bancárias no Dashboard (página inicial)
+Adicione uma seção/cards no dashboard mostrando um resumo das contas bancárias do usuário, similar ao card de "Próximos Vencimentos" ou "Transações Recentes" que já existem lá. Deve conter:
+
+Nome da conta, banco/tipo, e o saldo atual calculado (inicial + entradas − saídas − transferências enviadas + transferências recebidas).
+Ícone/cor de cada conta (reaproveitar o que já existe no cadastro de bancos).
+Um saldo total consolidado (soma de todas as contas) em destaque, no topo dessa seção.
+Essa seção deve respeitar o modo "ocultar valores" (ícone de olho) já implementado, mascarando os saldos quando ativado.
+Deve também respeitar o filtro de período já existente na home, se fizer sentido (ex: saldo "até a data final do período selecionado"), ou deixar claro que é o saldo atual em tempo real, independente do filtro de período dos gráficos — escolha a abordagem mais simples e consistente com o restante do dashboard.
+
+2. FEATURE — Coluna "Conta" na listagem de Transações + filtro por conta
+Na tela de Transações:
+
+Adicione uma nova coluna "Conta" na tabela, exibindo o nome do banco/conta vinculado à transação (bank_id), com o ícone/cor da conta. Se a transação não tiver conta vinculada (ex: transações de cartão de crédito, ou lançamentos antigos sem bank_id), exibir um traço ("—") ou "Não informado" no lugar.
+Para transferências (transfers), na mesma coluna ou de forma adaptada, exibir "De: Conta X → Para: Conta Y" já que envolve duas contas.
+Adicione um novo filtro dropdown "Todas as contas" (mesmo padrão visual dos filtros já existentes: tipo, categoria, status), listando todas as contas cadastradas pelo usuário, permitindo filtrar a tabela para mostrar apenas transações daquela conta específica.
+Garanta que esse filtro funcione em conjunto com os demais filtros já existentes (busca por descrição, tipo, categoria, status) — ou seja, todos devem poder ser combinados ao mesmo tempo.
+Ajuste a query de busca de transações para já trazer os dados da conta vinculada (via join com banks), evitando N+1 requisições.
+
+Depois de implementar, teste: verificar se o dashboard mostra corretamente as contas e o saldo total, se a coluna "Conta" aparece certa na listagem (incluindo transferências), e se o filtro por conta funciona sozinho e combinado com os outros filtros.

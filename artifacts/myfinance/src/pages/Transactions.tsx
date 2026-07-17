@@ -55,10 +55,16 @@ export const Transactions = () => {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
-  // Build name lookup for banks
+  // Build lookup maps for banks
   const bankNameMap = useMemo(() => {
     const m: Record<string, string> = {};
     banks.forEach(b => { m[b.id] = b.name; });
+    return m;
+  }, [banks]);
+
+  const bankColorMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    banks.forEach(b => { m[b.id] = b.color; });
     return m;
   }, [banks]);
 
@@ -267,6 +273,7 @@ export const Transactions = () => {
                 <TableHead>Data</TableHead>
                 <TableHead>Descrição</TableHead>
                 <TableHead>Categoria</TableHead>
+                <TableHead>Conta</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Valor</TableHead>
                 <TableHead className="text-right">Ações</TableHead>
@@ -275,7 +282,7 @@ export const Transactions = () => {
             <TableBody>
               {combinedList.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                     Nenhuma transação encontrada.
                   </TableCell>
                 </TableRow>
@@ -294,16 +301,24 @@ export const Transactions = () => {
                         <TableCell>
                           <div className="flex items-center gap-1.5">
                             <ArrowRightLeft className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                            <span className="font-medium text-muted-foreground">
-                              {fromName} → {toName}
-                            </span>
+                            <span className="font-medium text-muted-foreground">Transferência</span>
                             {tf.notes && (
-                              <span className="text-xs text-muted-foreground/60 truncate max-w-[100px]">· {tf.notes}</span>
+                              <span className="text-xs text-muted-foreground/60 truncate max-w-[120px]">· {tf.notes}</span>
                             )}
                           </div>
                         </TableCell>
                         <TableCell>
                           <Badge variant="secondary" className="text-[10px]">Transferência</Badge>
+                        </TableCell>
+                        {/* Conta column — from → to */}
+                        <TableCell>
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: bankColorMap[tf.fromBankId] }} />
+                            <span>{fromName}</span>
+                            <span className="mx-0.5">→</span>
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: bankColorMap[tf.toBankId] }} />
+                            <span>{toName}</span>
+                          </div>
                         </TableCell>
                         <TableCell>—</TableCell>
                         <TableCell className="text-right font-medium text-muted-foreground whitespace-nowrap">
@@ -358,6 +373,15 @@ export const Transactions = () => {
                             <span>{cat.name}</span>
                           </div>
                         ) : '—'}
+                      </TableCell>
+                      {/* Conta column */}
+                      <TableCell>
+                        {t.bankId && bankNameMap[t.bankId] ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: bankColorMap[t.bankId] }} />
+                            <span className="text-sm whitespace-nowrap">{bankNameMap[t.bankId]}</span>
+                          </div>
+                        ) : <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell>
                         <Badge variant={t.status === 'paid' ? 'success' : 'secondary'} className="cursor-pointer" onClick={() => toggleStatus(t)}>

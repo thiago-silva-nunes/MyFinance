@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { getIcon } from '@/components/IconMap';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
-import { ArrowDown, ArrowUp, TrendingUp as TrendingBalance, Bell, Plus, CreditCard, AlertTriangle, TrendingUp, TrendingDown, CalendarRange, Target } from 'lucide-react';
+import { ArrowDown, ArrowUp, TrendingUp as TrendingBalance, Bell, Plus, CreditCard, AlertTriangle, TrendingUp, TrendingDown, CalendarRange, Target, Building2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { TransactionFormDialog } from '@/components/TransactionFormDialog';
 import { Link } from 'wouter';
@@ -81,8 +81,14 @@ function ValueLabel(props: any) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+const BANK_TYPE_LABELS: Record<string, string> = {
+  corrente: 'Conta Corrente',
+  poupanca: 'Poupança',
+  investimento: 'Investimento',
+};
+
 export const Dashboard = () => {
-  const { transactions, scheduled, categories, cards, invoices, budgets } = useFinance();
+  const { transactions, scheduled, categories, cards, invoices, budgets, banks, transfers } = useFinance();
   const { hideValues } = usePrivacy();
   const [isTransactionFormOpen, setIsTransactionFormOpen] = React.useState(false);
   const [period, setPeriod] = useState<DashPeriod>('current_month');
@@ -219,6 +225,25 @@ export const Dashboard = () => {
       .sort((a, b) => b.pct - a.pct)
       .slice(0, 3);
   }, [budgets, transactions, categories]);
+
+  // Bank balances — real-time (all transactions, not period-filtered)
+  const { bankBalances, totalBankBalance } = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const bank of banks) {
+      let bal = bank.initialBalance;
+      for (const t of transactions) {
+        if (t.bankId !== bank.id) continue;
+        bal += t.type === 'income' ? t.amount : -t.amount;
+      }
+      for (const tr of transfers) {
+        if (tr.fromBankId === bank.id) bal -= tr.amount;
+        if (tr.toBankId === bank.id)   bal += tr.amount;
+      }
+      map[bank.id] = bal;
+    }
+    const total = Object.values(map).reduce((s, v) => s + v, 0);
+    return { bankBalances: map, totalBankBalance: total };
+  }, [banks, transactions, transfers]);
 
   const hasAlerts = highUsageCards.length > 0 || dueSoonInvoices.length > 0;
   const isCurrentMonth = period === 'current_month';
@@ -444,6 +469,51 @@ export const Dashboard = () => {
                 </div>
               );
             })}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Bank accounts — real-time balance, independent of period filter */}
+      {banks.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-primary" /> Contas Bancárias
+              </CardTitle>
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Saldo total</p>
+                <p className={`text-lg font-bold leading-tight ${totalBankBalance >= 0 ? 'text-success' : 'text-destructive'}`}>
+                  {mask(totalBankBalance)}
+                </p>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+              {banks.map(bank => {
+                const balance = bankBalances[bank.id] ?? bank.initialBalance;
+                const Icon = getIcon(bank.icon);
+                return (
+                  <div key={bank.id} className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 transition-colors">
+                    <div
+                      className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                      style={{ backgroundColor: `${bank.color}22`, color: bank.color }}
+                    >
+                      <Icon className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{bank.name}</p>
+                      <p className="text-xs text-muted-foreground">{BANK_TYPE_LABELS[bank.type] ?? bank.type}</p>
+                    </div>
+                    <p className={`text-sm font-semibold shrink-0 ${balance >= 0 ? 'text-success' : 'text-destructive'}`}>
+                      {mask(balance)}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground mt-3 text-center">Saldo atual · independente do período selecionado</p>
           </CardContent>
         </Card>
       )}
