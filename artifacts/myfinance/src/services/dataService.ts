@@ -23,6 +23,13 @@ function extractErrorMessage(err: unknown): string {
 
 export { extractErrorMessage };
 
+// ─── Auth helper (avoids network round-trip — reads local session cache) ──────
+
+async function getSessionUser() {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.user ?? null;
+}
+
 // ─── DRE group resolution (3-level hierarchy) ────────────────────────────────
 
 /**
@@ -151,53 +158,36 @@ function mapCardRow(row: Record<string, unknown>): CreditCard {
   };
 }
 
-/** Find or create the invoice for a given card + referenceMonth, and auto-update status. */
-async function ensureInvoice(userId: string, card: CreditCard, referenceMonth: string): Promise<Invoice> {
-  const { closingDate, dueDate } = getInvoiceDates(referenceMonth, card.closingDay, card.dueDay);
-  const today = getTodayStr();
-
-  const { data: existing, error: fetchErr } = await supabase
-    .from('invoices')
-    .select('*')
-    .eq('card_id', card.id)
-    .eq('reference_month', referenceMonth)
-    .maybeSingle();
-
-  if (fetchErr) throw fetchErr;
-
-  if (existing) {
-    const newStatus = computeInvoiceStatus(existing.closing_date, existing.due_date, existing.status, today);
-    if (newStatus !== existing.status) {
-      await supabase.from('invoices').update({ status: newStatus }).eq('id', existing.id);
-    }
-    return mapInvoiceRow({ ...existing, status: newStatus });
-  }
-
-  const status = computeInvoiceStatus(closingDate, dueDate, 'open', today);
-  const { data, error } = await supabase
-    .from('invoices')
-    .insert({ user_id: userId, card_id: card.id, reference_month: referenceMonth, closing_date: closingDate, due_date: dueDate, status })
-    .select()
-    .single();
-  if (error) throw error;
-  return mapInvoiceRow(data as Record<string, unknown>);
+/** Map a transactions row to the Transaction domain type. */
+function mapTxRow(row: Record<string, unknown>): Transaction {
+  return {
+    id: row.id as string,
+    description: row.description as string,
+    amount: Number(row.amount),
+    type: row.type as 'income' | 'expense',
+    categoryId: row.category_id as string,
+    subcategoryId: (row.subcategory_id as string) ?? undefined,
+    date: row.date as string,
+    status: row.status as 'paid' | 'pending',
+    paymentMethod: (row.payment_method as string) ?? undefined,
+    notes: (row.notes as string) ?? undefined,
+    scheduledId: (row.scheduled_id as string) ?? undefined,
+    cardId: (row.card_id as string) ?? undefined,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    bankId: (row as any).bank_id ?? undefined,
+    referenceMonth: (row.reference_month as string) ?? undefined,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    installmentGroupId: (row as any).installment_group_id ?? undefined,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    installmentNumber: (row as any).installment_number ?? undefined,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    installmentTotal: (row as any).installment_total ?? undefined,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    dreGroupOverride: (row as any).dre_group_override ?? undefined,
+  };
 }
 
-/** Recalculate and persist the total_amount for an invoice. */
-async function recalcInvoiceTotal(cardId: string, referenceMonth: string): Promise<void> {
-  const { data, error } = await supabase
-    .from('transactions')
-    .select('amount')
-    .eq('card_id', cardId)
-    .eq('reference_month', referenceMonth);
-  if (error) throw error;
-  const total = (data ?? []).reduce((s, t) => s + Number(t.amount), 0);
-  await supabase
-    .from('invoices')
-    .update({ total_amount: total })
-    .eq('card_id', cardId)
-    .eq('reference_month', referenceMonth);
-}
+const TX_SELECT = 'id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, installment_group_id, installment_number, installment_total, dre_group_override';
 
 // ─── Settings (localStorage) ──────────────────────────────────────────────────
 
@@ -220,7 +210,7 @@ export const dataService = {
   // ─── Categories ────────────────────────────────────────────────────────────
 
   getCategories: async (): Promise<Category[]> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('categories')
@@ -239,7 +229,7 @@ export const dataService = {
   },
 
   addCategory: async (cat: Omit<Category, 'id'>): Promise<Category> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
     const dreGroup = cat.dreGroup ?? (cat.type === 'income' ? 'receita' : 'despesa_variavel');
     const { data, error } = await supabase
@@ -277,7 +267,7 @@ export const dataService = {
   // ─── Subcategories ─────────────────────────────────────────────────────────
 
   getSubcategories: async (): Promise<Subcategory[]> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('subcategories')
@@ -295,7 +285,7 @@ export const dataService = {
   },
 
   addSubcategory: async (sub: Omit<Subcategory, 'id'>): Promise<Subcategory> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('subcategories')
@@ -331,49 +321,59 @@ export const dataService = {
 
   // ─── Transactions ──────────────────────────────────────────────────────────
 
-  getTransactions: async (): Promise<Transaction[]> => {
+  /**
+   * Fetch paginated transactions.
+   * Defaults to the last 12 months + a hard limit of 200 records to keep the initial load fast.
+   * Increase `limit` (via loadMoreTransactions in FinanceContext) to load older records.
+   * Use getAllTransactionsForReports() for full historical data in Reports/DRE.
+   */
+  getTransactions: async (opts?: { from?: string; to?: string; limit?: number }): Promise<Transaction[]> => {
+    // Default from: first day of the month 12 months ago
+    const defaultFrom = new Date();
+    defaultFrom.setFullYear(defaultFrom.getFullYear() - 1);
+    defaultFrom.setDate(1);
+    const from = opts?.from ?? defaultFrom.toISOString().split('T')[0];
+    const limit = opts?.limit ?? 200;
+
+    let query = supabase
+      .from('transactions')
+      .select(TX_SELECT)
+      .gte('date', from)
+      .order('date', { ascending: false })
+      .limit(limit);
+
+    if (opts?.to) query = query.lte('date', opts.to);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data ?? []).map((row) => mapTxRow(row as Record<string, unknown>));
+  },
+
+  /**
+   * Fetch ALL transactions with no date filter.
+   * For use in Reports, DRE and other pages that need full historical data.
+   */
+  getAllTransactionsForReports: async (): Promise<Transaction[]> => {
     const { data, error } = await supabase
       .from('transactions')
-      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, installment_group_id, installment_number, installment_total, dre_group_override')
+      .select(TX_SELECT)
       .order('date', { ascending: false });
     if (error) throw error;
-    return (data ?? []).map((row) => ({
-      id: row.id,
-      description: row.description,
-      amount: Number(row.amount),
-      type: row.type as 'income' | 'expense',
-      categoryId: row.category_id,
-      subcategoryId: row.subcategory_id ?? undefined,
-      date: row.date,
-      status: row.status as 'paid' | 'pending',
-      paymentMethod: row.payment_method ?? undefined,
-      notes: row.notes ?? undefined,
-      scheduledId: row.scheduled_id ?? undefined,
-      cardId: row.card_id ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      bankId: (row as any).bank_id ?? undefined,
-      referenceMonth: row.reference_month ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      installmentGroupId: (row as any).installment_group_id ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      installmentNumber: (row as any).installment_number ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      installmentTotal: (row as any).installment_total ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dreGroupOverride: (row as any).dre_group_override ?? undefined,
-    }));
+    return (data ?? []).map((row) => mapTxRow(row as Record<string, unknown>));
   },
 
   addTransaction: async (tx: Omit<Transaction, 'id'>): Promise<Transaction> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
 
-    // Determine referenceMonth for card transactions
+    // Determine referenceMonth and fetch card (needed for RPC later)
     let referenceMonth: string | null = null;
+    let card: CreditCard | null = null;
     if (tx.cardId) {
       const { data: cardRow } = await supabase.from('credit_cards').select('*').eq('id', tx.cardId).single();
       if (cardRow) {
-        referenceMonth = getInvoiceReferenceMonth(tx.date.split('T')[0], cardRow.closing_day);
+        card = mapCardRow(cardRow as Record<string, unknown>);
+        referenceMonth = getInvoiceReferenceMonth(tx.date.split('T')[0], card.closingDay);
       }
     }
 
@@ -396,48 +396,29 @@ export const dataService = {
         reference_month: referenceMonth,
         dre_group_override: tx.dreGroupOverride ?? null,
       })
-      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, installment_group_id, installment_number, installment_total, dre_group_override')
+      .select(TX_SELECT)
       .single();
     if (error) throw error;
 
-    // ── NON-CRITICAL: ensure invoice and recalc total ─────────────────────
-    if (tx.cardId && referenceMonth) {
+    // ── NON-CRITICAL: ensure invoice and recalc total (single RPC call) ───
+    if (tx.cardId && referenceMonth && card) {
       try {
-        const cardRow = await supabase.from('credit_cards').select('*').eq('id', tx.cardId).single();
-        if (cardRow.data) {
-          const card = mapCardRow(cardRow.data as Record<string, unknown>);
-          await ensureInvoice(user.id, card, referenceMonth);
-          await recalcInvoiceTotal(tx.cardId, referenceMonth);
-        }
+        await supabase.rpc('ensure_invoice_and_recalc', {
+          p_card_id: tx.cardId,
+          p_reference_month: referenceMonth,
+          p_closing_day: card.closingDay,
+          p_due_day: card.dueDay,
+        });
       } catch (invoiceErr) {
-        console.warn('[addTransaction] Falha ao atualizar fatura (não crítico):', invoiceErr);
+        console.warn('[addTransaction] Falha ao atualizar fatura via RPC (não crítico):', invoiceErr);
       }
     }
 
-    return {
-      id: data.id, description: data.description, amount: Number(data.amount),
-      type: data.type as 'income' | 'expense', categoryId: data.category_id,
-      subcategoryId: data.subcategory_id ?? undefined,
-      date: data.date,
-      status: data.status as 'paid' | 'pending', paymentMethod: data.payment_method ?? undefined,
-      notes: data.notes ?? undefined, scheduledId: data.scheduled_id ?? undefined,
-      cardId: data.card_id ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      bankId: (data as any).bank_id ?? undefined,
-      referenceMonth: data.reference_month ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      installmentGroupId: (data as any).installment_group_id ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      installmentNumber: (data as any).installment_number ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      installmentTotal: (data as any).installment_total ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dreGroupOverride: (data as any).dre_group_override ?? undefined,
-    };
+    return mapTxRow(data as Record<string, unknown>);
   },
 
   addInstallments: async (tx: Omit<Transaction, 'id'>, totalInstallments: number): Promise<void> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
     if (!tx.cardId) throw new Error('Parcelamento requer um cartão de crédito');
 
@@ -482,13 +463,17 @@ export const dataService = {
     const { error } = await supabase.from('transactions').insert(rows);
     if (error) throw error;
 
-    // ── NON-CRITICAL: update invoice totals per affected month ────────────
+    // ── NON-CRITICAL: update invoice totals via RPC (one call per month) ──
     for (const refMonth of affectedMonths) {
       try {
-        await ensureInvoice(user.id, card, refMonth);
-        await recalcInvoiceTotal(tx.cardId!, refMonth);
+        await supabase.rpc('ensure_invoice_and_recalc', {
+          p_card_id: tx.cardId!,
+          p_reference_month: refMonth,
+          p_closing_day: card.closingDay,
+          p_due_day: card.dueDay,
+        });
       } catch (invoiceErr) {
-        console.warn(`[addInstallments] Falha ao atualizar fatura ${refMonth} (não crítico):`, invoiceErr);
+        console.warn(`[addInstallments] Falha ao atualizar fatura ${refMonth} via RPC (não crítico):`, invoiceErr);
       }
     }
   },
@@ -540,7 +525,7 @@ export const dataService = {
       .from('transactions')
       .update(updates)
       .eq('id', id)
-      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, installment_group_id, installment_number, installment_total, dre_group_override')
+      .select(TX_SELECT)
       .single();
     if (error) throw error;
 
@@ -551,35 +536,34 @@ export const dataService = {
 
     try {
       if (oldCardId && oldRef && (oldCardId !== data.card_id || oldRef !== newRef)) {
-        await recalcInvoiceTotal(oldCardId, oldRef);
+        const { data: cardRow } = await supabase.from('credit_cards').select('*').eq('id', oldCardId).single();
+        if (cardRow) {
+          const oldCard = mapCardRow(cardRow as Record<string, unknown>);
+          await supabase.rpc('ensure_invoice_and_recalc', {
+            p_card_id: oldCardId,
+            p_reference_month: oldRef,
+            p_closing_day: oldCard.closingDay,
+            p_due_day: oldCard.dueDay,
+          });
+        }
       }
       if (data.card_id && newRef) {
-        await recalcInvoiceTotal(data.card_id, newRef);
+        const { data: cardRow } = await supabase.from('credit_cards').select('*').eq('id', data.card_id).single();
+        if (cardRow) {
+          const newCard = mapCardRow(cardRow as Record<string, unknown>);
+          await supabase.rpc('ensure_invoice_and_recalc', {
+            p_card_id: data.card_id,
+            p_reference_month: newRef,
+            p_closing_day: newCard.closingDay,
+            p_due_day: newCard.dueDay,
+          });
+        }
       }
     } catch (invoiceErr) {
-      console.warn('[updateTransaction] Falha ao recalcular fatura (não crítico):', invoiceErr);
+      console.warn('[updateTransaction] Falha ao recalcular fatura via RPC (não crítico):', invoiceErr);
     }
 
-    return {
-      id: data.id, description: data.description, amount: Number(data.amount),
-      type: data.type as 'income' | 'expense', categoryId: data.category_id,
-      subcategoryId: data.subcategory_id ?? undefined,
-      date: data.date,
-      status: data.status as 'paid' | 'pending', paymentMethod: data.payment_method ?? undefined,
-      notes: data.notes ?? undefined, scheduledId: data.scheduled_id ?? undefined,
-      cardId: data.card_id ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      bankId: (data as any).bank_id ?? undefined,
-      referenceMonth: data.reference_month ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      installmentGroupId: (data as any).installment_group_id ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      installmentNumber: (data as any).installment_number ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      installmentTotal: (data as any).installment_total ?? undefined,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      dreGroupOverride: (data as any).dre_group_override ?? undefined,
-    };
+    return mapTxRow(data as Record<string, unknown>);
   },
 
   deleteTransaction: async (id: string): Promise<void> => {
@@ -593,7 +577,20 @@ export const dataService = {
     if (error) throw error;
 
     if (existing?.card_id && existing?.reference_month) {
-      await recalcInvoiceTotal(existing.card_id, existing.reference_month);
+      try {
+        const { data: cardRow } = await supabase.from('credit_cards').select('*').eq('id', existing.card_id).single();
+        if (cardRow) {
+          const card = mapCardRow(cardRow as Record<string, unknown>);
+          await supabase.rpc('ensure_invoice_and_recalc', {
+            p_card_id: existing.card_id,
+            p_reference_month: existing.reference_month,
+            p_closing_day: card.closingDay,
+            p_due_day: card.dueDay,
+          });
+        }
+      } catch (e) {
+        console.warn('[deleteTransaction] Falha ao recalcular fatura (não crítico):', e);
+      }
     }
   },
 
@@ -616,7 +613,16 @@ export const dataService = {
         if (!seen.has(key)) {
           seen.add(key);
           try {
-            await recalcInvoiceTotal(row.card_id, row.reference_month);
+            const { data: cardRow } = await supabase.from('credit_cards').select('*').eq('id', row.card_id).single();
+            if (cardRow) {
+              const card = mapCardRow(cardRow as Record<string, unknown>);
+              await supabase.rpc('ensure_invoice_and_recalc', {
+                p_card_id: row.card_id,
+                p_reference_month: row.reference_month,
+                p_closing_day: card.closingDay,
+                p_due_day: card.dueDay,
+              });
+            }
           } catch (e) {
             console.warn('[deleteTransactions] Falha ao recalcular fatura (não crítico):', e);
           }
@@ -642,7 +648,20 @@ export const dataService = {
         const key = `${row.card_id}__${row.reference_month}`;
         if (!seen.has(key)) {
           seen.add(key);
-          await recalcInvoiceTotal(row.card_id, row.reference_month);
+          try {
+            const { data: cardRow } = await supabase.from('credit_cards').select('*').eq('id', row.card_id).single();
+            if (cardRow) {
+              const card = mapCardRow(cardRow as Record<string, unknown>);
+              await supabase.rpc('ensure_invoice_and_recalc', {
+                p_card_id: row.card_id,
+                p_reference_month: row.reference_month,
+                p_closing_day: card.closingDay,
+                p_due_day: card.dueDay,
+              });
+            }
+          } catch (e) {
+            console.warn('[deleteInstallmentGroup] Falha ao recalcular fatura (não crítico):', e);
+          }
         }
       }
     }
@@ -671,7 +690,7 @@ export const dataService = {
   },
 
   addScheduledTransaction: async (st: Omit<ScheduledTransaction, 'id'>): Promise<ScheduledTransaction> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('scheduled_transactions')
@@ -754,7 +773,7 @@ export const dataService = {
   },
 
   addCard: async (card: Omit<CreditCard, 'id'>): Promise<CreditCard> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('credit_cards')
@@ -824,7 +843,7 @@ export const dataService = {
 
   /** Mark an invoice as paid: create the expense transaction and update the invoice. */
   payInvoice: async (invoice: Invoice, card: CreditCard): Promise<void> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
 
     // Find or create "Despesas Financeiras" category
@@ -874,7 +893,7 @@ export const dataService = {
   // ─── Budgets ──────────────────────────────────────────────────────────────
 
   getBudgets: async (): Promise<import('../data/mockData').Budget[]> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('budgets')
@@ -896,7 +915,7 @@ export const dataService = {
   },
 
   addBudget: async (b: Omit<import('../data/mockData').Budget, 'id'>): Promise<import('../data/mockData').Budget> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('budgets')
@@ -955,7 +974,7 @@ export const dataService = {
   // ─── Banks ────────────────────────────────────────────────────────────────
 
   getBanks: async (): Promise<BankAccount[]> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('banks')
@@ -970,7 +989,7 @@ export const dataService = {
   },
 
   addBank: async (b: Omit<BankAccount, 'id'>): Promise<BankAccount> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('banks')
@@ -1003,7 +1022,7 @@ export const dataService = {
   // ─── Budget Groups ────────────────────────────────────────────────────────
 
   getBudgetGroups: async (): Promise<BudgetGroup[]> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('budget_groups')
@@ -1018,7 +1037,7 @@ export const dataService = {
   },
 
   addBudgetGroup: async (g: Omit<BudgetGroup, 'id'>): Promise<BudgetGroup> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('budget_groups')
@@ -1047,7 +1066,7 @@ export const dataService = {
   // ─── Transfers ────────────────────────────────────────────────────────────
 
   getTransfers: async (): Promise<import('../data/mockData').Transfer[]> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('transfers')
@@ -1062,7 +1081,7 @@ export const dataService = {
   },
 
   addTransfer: async (t: Omit<import('../data/mockData').Transfer, 'id'>): Promise<import('../data/mockData').Transfer> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('transfers')
@@ -1095,7 +1114,7 @@ export const dataService = {
   // ─── Seed data ────────────────────────────────────────────────────────────
 
   loadSampleData: async (): Promise<void> => {
-    const { data: { user } } = await supabase.auth.getUser();
+    const user = await getSessionUser();
     if (!user) throw new Error('Not authenticated');
 
     const { defaultCategories, defaultTransactions, defaultScheduledTransactions } =

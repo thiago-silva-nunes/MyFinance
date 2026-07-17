@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useFinance } from '@/context/FinanceContext';
+import { dataService } from '@/services/dataService';
 import { formatCurrency } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -9,7 +11,13 @@ import {
 } from 'recharts';
 
 export const Reports = () => {
-  const { transactions, categories, subcategories } = useFinance();
+  const { categories, subcategories } = useFinance();
+  // Full transaction history — not limited to 12 months, for accurate multi-month charts
+  const { data: transactions = [] } = useQuery({
+    queryKey: ['transactions', 'all'],
+    queryFn: dataService.getAllTransactionsForReports,
+    staleTime: 60_000,
+  });
   const [filterCategoryId, setFilterCategoryId] = useState<string>('all');
   const [groupBy, setGroupBy] = useState<'category' | 'subcategory'>('category');
 

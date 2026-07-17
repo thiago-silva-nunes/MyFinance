@@ -8,25 +8,33 @@ import { Layout } from '@/components/Layout';
 import { InstallPWA } from '@/components/InstallPWA';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { Loader2, Settings2 } from 'lucide-react';
-import React, { useEffect } from 'react';
+import React, { useEffect, lazy, Suspense } from 'react';
 import { useFinance } from '@/context/FinanceContext';
 import { checkAndNotify, getNotificationPermission, cacheUpcomingItems, registerPeriodicSync } from '@/services/notificationService';
 
-import { Dashboard } from '@/pages/Dashboard';
-import { Transactions } from '@/pages/Transactions';
-import { Categories } from '@/pages/Categories';
-import { Scheduled } from '@/pages/Scheduled';
-import { ScheduledAnalysis } from '@/pages/ScheduledAnalysis';
-import { Reports } from '@/pages/Reports';
-import { Settings } from '@/pages/Settings';
-import { Cards } from '@/pages/Cards';
-import { CardDetail } from '@/pages/CardDetail';
-import { Dre } from '@/pages/Dre';
-import { Budgets } from '@/pages/Budgets';
-import { Login } from '@/pages/Login';
-import { Signup } from '@/pages/Signup';
+// ─── Page code-splitting (reduces initial bundle size) ────────────────────────
+const Dashboard        = lazy(() => import('@/pages/Dashboard').then(m => ({ default: m.Dashboard })));
+const Transactions     = lazy(() => import('@/pages/Transactions').then(m => ({ default: m.Transactions })));
+const Categories       = lazy(() => import('@/pages/Categories').then(m => ({ default: m.Categories })));
+const Scheduled        = lazy(() => import('@/pages/Scheduled').then(m => ({ default: m.Scheduled })));
+const ScheduledAnalysis= lazy(() => import('@/pages/ScheduledAnalysis').then(m => ({ default: m.ScheduledAnalysis })));
+const Reports          = lazy(() => import('@/pages/Reports').then(m => ({ default: m.Reports })));
+const Settings         = lazy(() => import('@/pages/Settings').then(m => ({ default: m.Settings })));
+const Cards            = lazy(() => import('@/pages/Cards').then(m => ({ default: m.Cards })));
+const CardDetail       = lazy(() => import('@/pages/CardDetail').then(m => ({ default: m.CardDetail })));
+const Dre              = lazy(() => import('@/pages/Dre').then(m => ({ default: m.Dre })));
+const Budgets          = lazy(() => import('@/pages/Budgets').then(m => ({ default: m.Budgets })));
+const Login            = lazy(() => import('@/pages/Login').then(m => ({ default: m.Login })));
+const Signup           = lazy(() => import('@/pages/Signup').then(m => ({ default: m.Signup })));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: false, // avoid unexpected refetches when switching tabs
+    },
+  },
+});
 
 function NotFound() {
   return (
@@ -44,6 +52,14 @@ function LoadingScreen() {
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
         <p className="text-sm text-muted-foreground">Carregando...</p>
       </div>
+    </div>
+  );
+}
+
+function PageFallback() {
+  return (
+    <div className="flex items-center justify-center min-h-[30vh]">
+      <Loader2 className="w-6 h-6 animate-spin text-primary" />
     </div>
   );
 }
@@ -111,10 +127,12 @@ function AppContent() {
 
   if (!user) {
     return (
-      <Switch>
-        <Route path="/signup" component={Signup} />
-        <Route component={Login} />
-      </Switch>
+      <Suspense fallback={<LoadingScreen />}>
+        <Switch>
+          <Route path="/signup" component={Signup} />
+          <Route component={Login} />
+        </Switch>
+      </Suspense>
     );
   }
 
@@ -122,20 +140,22 @@ function AppContent() {
     <FinanceProvider>
       <NotificationChecker />
       <Layout>
-        <Switch>
-          <Route path="/" component={Dashboard} />
-          <Route path="/transactions" component={Transactions} />
-          <Route path="/categories" component={Categories} />
-          <Route path="/cards/:id" component={CardDetail} />
-          <Route path="/cards" component={Cards} />
-          <Route path="/scheduled/analise" component={ScheduledAnalysis} />
-          <Route path="/scheduled" component={Scheduled} />
-          <Route path="/dre" component={Dre} />
-          <Route path="/orcamentos" component={Budgets} />
-          <Route path="/reports" component={Reports} />
-          <Route path="/settings" component={Settings} />
-          <Route component={NotFound} />
-        </Switch>
+        <Suspense fallback={<PageFallback />}>
+          <Switch>
+            <Route path="/" component={Dashboard} />
+            <Route path="/transactions" component={Transactions} />
+            <Route path="/categories" component={Categories} />
+            <Route path="/cards/:id" component={CardDetail} />
+            <Route path="/cards" component={Cards} />
+            <Route path="/scheduled/analise" component={ScheduledAnalysis} />
+            <Route path="/scheduled" component={Scheduled} />
+            <Route path="/dre" component={Dre} />
+            <Route path="/orcamentos" component={Budgets} />
+            <Route path="/reports" component={Reports} />
+            <Route path="/settings" component={Settings} />
+            <Route component={NotFound} />
+          </Switch>
+        </Suspense>
       </Layout>
       <InstallPWA />
     </FinanceProvider>

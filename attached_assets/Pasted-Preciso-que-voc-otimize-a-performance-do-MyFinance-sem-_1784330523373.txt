@@ -1,0 +1,33 @@
+Preciso que você otimize a performance do MyFinance sem alterar a stack, configs de ambiente, secrets, workflow do Replit, package manager (pnpm) ou funcionalidades existentes. O objetivo é reduzir drasticamente o tempo de carregamento dos dados.
+
+Faça as seguintes otimizações, nesta ordem:
+
+1. ELIMINAR CHAMADAS REDUNDANTES A supabase.auth.getUser()
+Em src/services/dataService.ts, quase todo método chama `supabase.auth.getUser()`, que faz uma requisição de rede ao servidor de Auth toda vez. Substitua por uma estratégia que evite essa rede desnecessária:
+- Troque `supabase.auth.getUser()` por `supabase.auth.getSession()` (lê da sessão local, sem round-trip ao servidor) onde só precisamos do user.id, OU
+- Refatore os métodos de dataService para receberem o userId como parâmetro (vindo do AuthContext, que já mantém o user logado em memória), evitando reconsultar em cada chamada.
+Aplique isso em todos os métodos do dataService.ts (categories, subcategories, transactions, scheduled, cards, invoices, budgets, budgetGroups, banks, transfers).
+
+2. ADICIONAR ÍNDICES NO BANCO (Supabase)
+Crie um novo arquivo supabase/schema_v7_performance_indexes.sql com índices para as colunas mais consultadas, sem alterar nenhuma tabela existente:
+- transactions: índice em (user_id, date DESC), e índices separados em card_id, category_id, scheduled_id, installment_group_id
+- categories, subcategories, scheduled_transactions, credit_cards, invoices, budgets, budget_groups, banks, transfers: índice em user_id
+- invoices: índice em (card_id, reference_month)
+Use `CREATE INDEX IF NOT EXISTS` para ser seguro rodar em produção. Me avise que preciso rodar esse SQL manualmente no SQL Editor do Supabase (não crie/edite tabelas automaticamente).
+
+3. PAGINAR/LIMITAR getTransactions()
+Ajuste dataService.getTransactions() para aceitar parâmetros opcionais de filtro por período (ex: mês/ano ou range de datas) e um limite padrão razoável (ex: últimos 3 meses ou 200 registros mais recentes), com opção de "carregar mais". Ajuste o FinanceContext e as telas que dependem de transactions para funcionar com esse carregamento incremental, sem quebrar Dashboard, Relatórios e DRE (que podem precisar do histórico completo — nesses casos, criar um método separado tipo getAllTransactionsForReports() só usado nessas telas).
+
+4. INTRODUZIR CACHE COM REACT QUERY
+O projeto já tem @tanstack/react-query instalado mas não é usado para os dados do Supabase. Migre as buscas do FinanceContext (categories, subcategories, transactions, scheduled, cards, invoices, budgets, budgetGroups, banks, transfers) para usar useQuery, com staleTime adequado (ex: 30-60s) para evitar refetch desnecessário ao trocar de tela, mantendo os métodos de mutação (add/update/delete) invalidando as queries certas via queryClient.invalidateQueries.
+
+5. REDUZIR N+1 EM addTransaction/addInstallments
+Em vez de buscar o cartão, depois ensureInvoice, depois recalcInvoiceTotal como 3-4 chamadas separadas, crie uma função no Postgres (RPC via supabase.rpc) que faça a lógica de fatura (ensure + recalc) em uma única chamada ao banco. Documente essa função em um novo arquivo SQL de migração.
+
+6. CODE-SPLITTING DAS PÁGINAS
+Em src/App.tsx, converta os imports das páginas (Dashboard, Transactions, Categories, Scheduled, ScheduledAnalysis, Reports, Settings, Cards, CardDetail, Dre, Budgets, Login, Signup) para React.lazy() com Suspense e um fallback de loading simples, reduzindo o bundle inicial.
+
+IMPORTANTE:
+- Não altere .replit, secrets, variáveis de ambiente, nome de tabelas existentes ou schema.sql original.
+- Não remova nenhuma funcionalidade existente (recorrências, faturas, DRE, orçamentos, transferências etc.) — apenas otimize a forma como os dados são buscados/cacheados.
+- Ao final, rode o typecheck (pnpm run typecheck) e me mostre um resumo do que foi alterado e quais SQLs preciso rodar manualmente no Supabase.

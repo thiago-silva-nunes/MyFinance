@@ -33,7 +33,7 @@ export const Transactions = () => {
   const {
     transactions, categories, banks, transfers,
     deleteTransaction, deleteTransactions, deleteInstallmentGroup, updateTransaction,
-    deleteTransfer,
+    deleteTransfer, loadMoreTransactions, hasMoreTransactions,
   } = useFinance();
   const { hideValues } = usePrivacy();
   const mask = (amount: number) => hideValues ? 'R$ ••••••' : formatCurrency(amount);
@@ -412,6 +412,16 @@ export const Transactions = () => {
           </Table>
         </div>
       </div>
+
+      {/* Load more — shown when there may be older transactions beyond the current page */}
+      {hasMoreTransactions && (
+        <div className="flex justify-center pt-2 pb-4">
+          <Button variant="outline" onClick={loadMoreTransactions} className="gap-2">
+            <Loader2 className="w-4 h-4" />
+            Carregar mais transações
+          </Button>
+        </div>
+      )}
 
       {/* Transaction form */}
       <TransactionFormDialog

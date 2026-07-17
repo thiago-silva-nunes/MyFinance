@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Category, Subcategory, Transaction, ScheduledTransaction, CreditCard, Invoice, Budget, BankAccount, BudgetGroup, Transfer } from '../data/mockData';
 import { dataService } from '../services/dataService';
-import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 import {
   generateAllPendingForCurrentPeriod,
@@ -9,6 +9,25 @@ import {
   regeneratePendingForScheduled,
   alreadyCheckedThisMonth,
 } from '../services/recurringEngine';
+
+// ─── Query Keys ──────────────────────────────────────────────────────────────
+
+const QK = {
+  categories:   () => ['categories']   as const,
+  subcategories:() => ['subcategories']as const,
+  transactions: () => ['transactions'] as const,
+  scheduled:    () => ['scheduled']    as const,
+  cards:        () => ['cards']        as const,
+  invoices:     () => ['invoices']     as const,
+  budgets:      () => ['budgets']      as const,
+  budgetGroups: () => ['budgetGroups'] as const,
+  banks:        () => ['banks']        as const,
+  transfers:    () => ['transfers']    as const,
+};
+
+export { QK as FINANCE_QUERY_KEYS };
+
+const STALE_TIME = 30_000; // 30 seconds
 
 interface FinanceContextType {
   categories: Category[];
@@ -25,6 +44,10 @@ interface FinanceContextType {
   loading: boolean;
 
   refreshData: () => Promise<void>;
+  /** Load 200 more transactions older than the current window. */
+  loadMoreTransactions: () => void;
+  /** True when the current transaction set is at the fetch limit — more may exist. */
+  hasMoreTransactions: boolean;
   generatePendingTransaction: (scheduled: ScheduledTransaction) => Promise<Transaction | null>;
   regeneratePendingTransaction: (scheduled: ScheduledTransaction) => Promise<Transaction | null>;
 
@@ -76,19 +99,19 @@ const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
 
 export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const enabled = !!user;
 
-  const [categories, setCategories]       = useState<Category[]>([]);
-  const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
-  const [transactions, setTransactions]   = useState<Transaction[]>([]);
-  const [scheduled, setScheduled]         = useState<ScheduledTransaction[]>([]);
-  const [cards, setCards]                 = useState<CreditCard[]>([]);
-  const [invoices, setInvoices]           = useState<Invoice[]>([]);
-  const [budgets, setBudgets]             = useState<Budget[]>([]);
-  const [budgetGroups, setBudgetGroups]   = useState<BudgetGroup[]>([]);
-  const [banks, setBanks]                 = useState<BankAccount[]>([]);
-  const [transfers, setTransfers]         = useState<Transfer[]>([]);
-  const [settings, setSettings]           = useState<{ currency: string; theme: 'light' | 'dark' }>({ currency: 'BRL', theme: 'light' });
-  const [loading, setLoading]             = useState(true);
+  // ─── Transaction pagination ───────────────────────────────────────────────
+  const PAGE_SIZE = 200;
+  const [transactionLimit, setTransactionLimit] = useState(PAGE_SIZE);
+
+  const loadMoreTransactions = useCallback(() => {
+    setTransactionLimit(prev => prev + PAGE_SIZE);
+  }, []);
+
+  // ─── Settings (localStorage — no network call) ────────────────────────────
+  const [settings, setSettings] = useState<{ currency: string; theme: 'light' | 'dark' }>({ currency: 'BRL', theme: 'light' });
 
   const applyTheme = (theme: 'light' | 'dark') => {
     if (theme === 'dark') document.documentElement.classList.add('dark');
@@ -101,142 +124,235 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     applyTheme(s.theme);
   }, []);
 
-  const refreshData = useCallback(async () => {
+  // ─── Clear cache on logout ────────────────────────────────────────────────
+  useEffect(() => {
     if (!user) {
-      setCategories([]); setSubcategories([]); setTransactions([]); setScheduled([]);
-      setCards([]); setInvoices([]); setBanks([]); setTransfers([]); setLoading(false);
-      return;
+      queryClient.clear();
     }
-    setLoading(true);
-    try {
-      const [cats, subs, txns, sched, crds, invs, bdgs, bgrps, bnks, tfs] = await Promise.all([
-        dataService.getCategories(),
-        dataService.getSubcategories().catch(() => [] as Subcategory[]),
-        dataService.getTransactions(),
-        dataService.getScheduledTransactions(),
-        dataService.getCards(),
-        dataService.getInvoices(),
-        dataService.getBudgets().catch(() => [] as Budget[]),
-        dataService.getBudgetGroups().catch(() => [] as BudgetGroup[]),
-        dataService.getBanks().catch(() => [] as BankAccount[]),
-        dataService.getTransfers().catch(() => [] as Transfer[]),
-      ]);
-      setCategories(cats);
-      setSubcategories(subs);
-      setTransactions(txns);
-      setScheduled(sched);
-      setCards(crds);
-      setInvoices(invs);
-      setBudgets(bdgs);
-      setBudgetGroups(bgrps);
-      setBanks(bnks);
-      setTransfers(tfs);
-    } catch (err) {
-      console.error('[FinanceContext] Error loading data:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [user]);
+  }, [user, queryClient]);
 
-  useEffect(() => { refreshData(); }, [refreshData]);
+  // ─── Queries (React Query — cached, staleTime 30 s) ───────────────────────
+
+  const { data: categories = [], isPending: catsPending } = useQuery({
+    queryKey: QK.categories(),
+    queryFn: dataService.getCategories,
+    enabled,
+    staleTime: STALE_TIME,
+  });
+
+  const { data: subcategories = [], isPending: subcatsPending } = useQuery({
+    queryKey: QK.subcategories(),
+    queryFn: () => dataService.getSubcategories().catch(() => [] as Subcategory[]),
+    enabled,
+    staleTime: STALE_TIME,
+  });
+
+  const { data: transactions = [], isPending: txnsPending } = useQuery<Transaction[]>({
+    queryKey: [...QK.transactions(), { limit: transactionLimit }],
+    queryFn: () => dataService.getTransactions({ limit: transactionLimit }),
+    enabled,
+    staleTime: STALE_TIME,
+  });
+
+  // True when the last fetch returned exactly the limit — more records may exist
+  const hasMoreTransactions = useMemo(
+    () => transactions.length >= transactionLimit,
+    [transactions.length, transactionLimit],
+  );
+
+  const { data: scheduled = [], isPending: schedPending } = useQuery({
+    queryKey: QK.scheduled(),
+    queryFn: dataService.getScheduledTransactions,
+    enabled,
+    staleTime: STALE_TIME,
+  });
+
+  const { data: cards = [], isPending: cardsPending } = useQuery({
+    queryKey: QK.cards(),
+    queryFn: dataService.getCards,
+    enabled,
+    staleTime: STALE_TIME,
+  });
+
+  const { data: invoices = [], isPending: invoicesPending } = useQuery({
+    queryKey: QK.invoices(),
+    queryFn: dataService.getInvoices,
+    enabled,
+    staleTime: STALE_TIME,
+  });
+
+  const { data: budgets = [], isPending: budgetsPending } = useQuery({
+    queryKey: QK.budgets(),
+    queryFn: () => dataService.getBudgets().catch(() => [] as Budget[]),
+    enabled,
+    staleTime: STALE_TIME,
+  });
+
+  const { data: budgetGroups = [], isPending: budgetGroupsPending } = useQuery({
+    queryKey: QK.budgetGroups(),
+    queryFn: () => dataService.getBudgetGroups().catch(() => [] as BudgetGroup[]),
+    enabled,
+    staleTime: STALE_TIME,
+  });
+
+  const { data: banks = [], isPending: banksPending } = useQuery({
+    queryKey: QK.banks(),
+    queryFn: () => dataService.getBanks().catch(() => [] as BankAccount[]),
+    enabled,
+    staleTime: STALE_TIME,
+  });
+
+  const { data: transfers = [], isPending: transfersPending } = useQuery({
+    queryKey: QK.transfers(),
+    queryFn: () => dataService.getTransfers().catch(() => [] as Transfer[]),
+    enabled,
+    staleTime: STALE_TIME,
+  });
+
+  // Loading = true only while user is logged in AND any query hasn't resolved yet
+  const loading = enabled && (
+    catsPending || subcatsPending || txnsPending || schedPending ||
+    cardsPending || invoicesPending || budgetsPending ||
+    budgetGroupsPending || banksPending || transfersPending
+  );
 
   // ─── Auto-geração de pendentes recorrentes ─────────────────────────────────
-  // Roda uma vez por mês após os dados serem carregados
+  // Runs once per month after data loads
   useEffect(() => {
     if (loading || !user || scheduled.length === 0) return;
     if (alreadyCheckedThisMonth()) return;
 
-    supabase.auth.getUser().then(({ data: { user: u } }) => {
-      if (!u) return;
-      generateAllPendingForCurrentPeriod(u.id, scheduled).then((generated) => {
-        if (generated.length > 0) {
-          setTransactions(prev => [...generated, ...prev]);
-        }
-      }).catch(e => console.warn('[FinanceContext] Auto-geração de pendentes falhou:', e));
-    });
+    generateAllPendingForCurrentPeriod(user.id, scheduled).then((generated) => {
+      if (generated.length > 0) {
+        // Invalidate so the paginated query (keyed with limit) picks up new rows
+        queryClient.invalidateQueries({ queryKey: QK.transactions() });
+      }
+    }).catch(e => console.warn('[FinanceContext] Auto-geração de pendentes falhou:', e));
   }, [loading, user, scheduled]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const refreshTransactionsAndInvoices = useCallback(async () => {
-    const [txns, invs] = await Promise.all([dataService.getTransactions(), dataService.getInvoices()]);
-    setTransactions(txns);
-    setInvoices(invs);
-  }, []);
+  // ─── refreshData: invalidate all queries ─────────────────────────────────
+  const refreshData = useCallback(async () => {
+    await queryClient.invalidateQueries();
+  }, [queryClient]);
 
   // ─── Category actions ─────────────────────────────────────────────────────
-  const addCategory = async (data: Omit<Category, 'id'>) => { const c = await dataService.addCategory(data); setCategories(p => [...p, c]); };
-  const updateCategory = async (id: string, data: Partial<Category>) => { const c = await dataService.updateCategory(id, data); setCategories(p => p.map(x => x.id === id ? c : x)); };
-  const deleteCategory = async (id: string) => { await dataService.deleteCategory(id); setCategories(p => p.filter(x => x.id !== id)); };
+  const addCategory = async (data: Omit<Category, 'id'>) => {
+    const c = await dataService.addCategory(data);
+    queryClient.setQueryData(QK.categories(), (old: Category[] = []) => [...old, c]);
+  };
+  const updateCategory = async (id: string, data: Partial<Category>) => {
+    const c = await dataService.updateCategory(id, data);
+    queryClient.setQueryData(QK.categories(), (old: Category[] = []) => old.map(x => x.id === id ? c : x));
+  };
+  const deleteCategory = async (id: string) => {
+    await dataService.deleteCategory(id);
+    queryClient.setQueryData(QK.categories(), (old: Category[] = []) => old.filter(x => x.id !== id));
+  };
 
   // ─── Subcategory actions ──────────────────────────────────────────────────
-  const addSubcategory = async (data: Omit<Subcategory, 'id'>) => { const c = await dataService.addSubcategory(data); setSubcategories(p => [...p, c]); };
-  const updateSubcategory = async (id: string, data: Partial<Omit<Subcategory, 'id'>>) => { const c = await dataService.updateSubcategory(id, data); setSubcategories(p => p.map(x => x.id === id ? c : x)); };
-  const deleteSubcategory = async (id: string) => { await dataService.deleteSubcategory(id); setSubcategories(p => p.filter(x => x.id !== id)); };
+  const addSubcategory = async (data: Omit<Subcategory, 'id'>) => {
+    const c = await dataService.addSubcategory(data);
+    queryClient.setQueryData(QK.subcategories(), (old: Subcategory[] = []) => [...old, c]);
+  };
+  const updateSubcategory = async (id: string, data: Partial<Omit<Subcategory, 'id'>>) => {
+    const c = await dataService.updateSubcategory(id, data);
+    queryClient.setQueryData(QK.subcategories(), (old: Subcategory[] = []) => old.map(x => x.id === id ? c : x));
+  };
+  const deleteSubcategory = async (id: string) => {
+    await dataService.deleteSubcategory(id);
+    queryClient.setQueryData(QK.subcategories(), (old: Subcategory[] = []) => old.filter(x => x.id !== id));
+  };
 
   // ─── Transaction actions ───────────────────────────────────────────────────
   const addTransaction = async (data: Omit<Transaction, 'id'>) => {
     const created = await dataService.addTransaction(data);
-    setTransactions(prev => [created, ...prev]);
-    if (created.cardId) { const invs = await dataService.getInvoices(); setInvoices(invs); }
+    // Invalidate with prefix so all paginated variants (keyed with limit) refresh
+    await queryClient.invalidateQueries({ queryKey: QK.transactions() });
+    if (created.cardId) {
+      queryClient.invalidateQueries({ queryKey: QK.invoices() });
+    }
   };
 
   const addInstallments = async (data: Omit<Transaction, 'id'>, n: number) => {
     await dataService.addInstallments(data, n);
-    await refreshTransactionsAndInvoices();
+    // Installments create many rows across multiple months — full refetch
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: QK.transactions() }),
+      queryClient.invalidateQueries({ queryKey: QK.invoices() }),
+    ]);
   };
 
   const updateTransaction = async (id: string, data: Partial<Transaction>) => {
+    // Read old card from the in-scope transactions array (already paginated + cached)
     const oldCardId = transactions.find(t => t.id === id)?.cardId;
     const updated = await dataService.updateTransaction(id, data);
-    setTransactions(prev => prev.map(t => t.id === id ? updated : t));
-    if (updated.cardId || oldCardId) { const invs = await dataService.getInvoices(); setInvoices(invs); }
+    // Prefix invalidate covers all paginated variants
+    await queryClient.invalidateQueries({ queryKey: QK.transactions() });
+    if (updated.cardId || oldCardId) {
+      queryClient.invalidateQueries({ queryKey: QK.invoices() });
+    }
   };
 
   const deleteTransaction = async (id: string) => {
     const existing = transactions.find(t => t.id === id);
     await dataService.deleteTransaction(id);
-    setTransactions(prev => prev.filter(t => t.id !== id));
-    if (existing?.cardId) { const invs = await dataService.getInvoices(); setInvoices(invs); }
+    await queryClient.invalidateQueries({ queryKey: QK.transactions() });
+    if (existing?.cardId) {
+      queryClient.invalidateQueries({ queryKey: QK.invoices() });
+    }
   };
 
   const deleteTransactions = async (ids: string[]) => {
     if (ids.length === 0) return;
     const affectedHasCard = transactions.some(t => ids.includes(t.id) && !!t.cardId);
     await dataService.deleteTransactions(ids);
-    setTransactions(prev => prev.filter(t => !ids.includes(t.id)));
-    if (affectedHasCard) { const invs = await dataService.getInvoices(); setInvoices(invs); }
+    await queryClient.invalidateQueries({ queryKey: QK.transactions() });
+    if (affectedHasCard) {
+      queryClient.invalidateQueries({ queryKey: QK.invoices() });
+    }
   };
 
   const deleteInstallmentGroup = async (groupId: string) => {
     const hasCard = transactions.some(t => t.installmentGroupId === groupId && !!t.cardId);
     await dataService.deleteInstallmentGroup(groupId);
-    setTransactions(prev => prev.filter(t => t.installmentGroupId !== groupId));
-    if (hasCard) { const invs = await dataService.getInvoices(); setInvoices(invs); }
+    await queryClient.invalidateQueries({ queryKey: QK.transactions() });
+    if (hasCard) {
+      queryClient.invalidateQueries({ queryKey: QK.invoices() });
+    }
   };
 
   // ─── Scheduled actions ────────────────────────────────────────────────────
   const addScheduled = async (data: Omit<ScheduledTransaction, 'id'>) => {
     const c = await dataService.addScheduledTransaction(data);
-    setScheduled(p => [...p, c]);
-    // Gera imediatamente a transação pendente para o período atual (se aplicável)
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
+    queryClient.setQueryData(QK.scheduled(), (old: ScheduledTransaction[] = []) => [...old, c]);
+    // Immediately generate a pending transaction for the current period (if applicable)
+    if (user) {
+      try {
         const tx = await generatePendingIfNeeded(user.id, c);
-        if (tx) setTransactions(prev => [tx, ...prev]);
+        if (tx) {
+          queryClient.invalidateQueries({ queryKey: QK.transactions() });
+        }
+      } catch (e) {
+        console.warn('[FinanceContext] Falha ao gerar transação pendente para nova recorrência:', e);
       }
-    } catch (e) {
-      console.warn('[FinanceContext] Falha ao gerar transação pendente para nova recorrência:', e);
     }
   };
-  const updateScheduled = async (id: string, data: Partial<ScheduledTransaction>) => { const c = await dataService.updateScheduledTransaction(id, data); setScheduled(p => p.map(x => x.id === id ? c : x)); };
-  const deleteScheduled = async (id: string) => { await dataService.deleteScheduledTransaction(id); setScheduled(p => p.filter(x => x.id !== id)); };
+  const updateScheduled = async (id: string, data: Partial<ScheduledTransaction>) => {
+    const c = await dataService.updateScheduledTransaction(id, data);
+    queryClient.setQueryData(QK.scheduled(), (old: ScheduledTransaction[] = []) => old.map(x => x.id === id ? c : x));
+  };
+  const deleteScheduled = async (id: string) => {
+    await dataService.deleteScheduledTransaction(id);
+    queryClient.setQueryData(QK.scheduled(), (old: ScheduledTransaction[] = []) => old.filter(x => x.id !== id));
+  };
 
-  const generatePendingTransaction = async (scheduled: ScheduledTransaction): Promise<Transaction | null> => {
+  const generatePendingTransaction = async (sched: ScheduledTransaction): Promise<Transaction | null> => {
+    if (!user) return null;
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
-      const tx = await generatePendingIfNeeded(user.id, scheduled);
-      if (tx) setTransactions(prev => [tx, ...prev]);
+      const tx = await generatePendingIfNeeded(user.id, sched);
+      if (tx) {
+        await queryClient.invalidateQueries({ queryKey: QK.transactions() });
+      }
       return tx;
     } catch (e) {
       console.warn('[FinanceContext] Falha ao gerar transação pendente:', e);
@@ -244,12 +360,13 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const regeneratePendingTransaction = async (scheduled: ScheduledTransaction): Promise<Transaction | null> => {
+  const regeneratePendingTransaction = async (sched: ScheduledTransaction): Promise<Transaction | null> => {
+    if (!user) return null;
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
-      const tx = await regeneratePendingForScheduled(user.id, scheduled);
-      if (tx) setTransactions(prev => [tx, ...prev]);
+      const tx = await regeneratePendingForScheduled(user.id, sched);
+      if (tx) {
+        await queryClient.invalidateQueries({ queryKey: QK.transactions() });
+      }
       return tx;
     } catch (e) {
       console.warn('[FinanceContext] Falha ao regenerar transação pendente:', e);
@@ -258,42 +375,85 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   };
 
   // ─── Card actions ─────────────────────────────────────────────────────────
-  const addCard = async (data: Omit<CreditCard, 'id'>) => { const c = await dataService.addCard(data); setCards(p => [...p, c]); };
-  const updateCard = async (id: string, data: Partial<CreditCard>) => { const c = await dataService.updateCard(id, data); setCards(p => p.map(x => x.id === id ? c : x)); };
-  const deleteCard = async (id: string) => { await dataService.deleteCard(id); setCards(p => p.filter(x => x.id !== id)); };
-  const payInvoice = async (invoice: Invoice, card: CreditCard) => { await dataService.payInvoice(invoice, card); await refreshTransactionsAndInvoices(); };
+  const addCard = async (data: Omit<CreditCard, 'id'>) => {
+    const c = await dataService.addCard(data);
+    queryClient.setQueryData(QK.cards(), (old: CreditCard[] = []) => [...old, c]);
+  };
+  const updateCard = async (id: string, data: Partial<CreditCard>) => {
+    const c = await dataService.updateCard(id, data);
+    queryClient.setQueryData(QK.cards(), (old: CreditCard[] = []) => old.map(x => x.id === id ? c : x));
+  };
+  const deleteCard = async (id: string) => {
+    await dataService.deleteCard(id);
+    queryClient.setQueryData(QK.cards(), (old: CreditCard[] = []) => old.filter(x => x.id !== id));
+  };
+  const payInvoice = async (invoice: Invoice, card: CreditCard) => {
+    await dataService.payInvoice(invoice, card);
+    // payInvoice creates a transaction AND modifies an invoice
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: QK.transactions() }),
+      queryClient.invalidateQueries({ queryKey: QK.invoices() }),
+    ]);
+  };
 
   // ─── Budget actions ───────────────────────────────────────────────────────
-  const addBudget = async (data: Omit<Budget, 'id'>) => { const c = await dataService.addBudget(data); setBudgets(p => [...p, c]); };
-  const updateBudget = async (id: string, data: Partial<Budget>) => { const c = await dataService.updateBudget(id, data); setBudgets(p => p.map(x => x.id === id ? c : x)); };
-  const deleteBudget = async (id: string) => { await dataService.deleteBudget(id); setBudgets(p => p.filter(x => x.id !== id)); };
+  const addBudget = async (data: Omit<Budget, 'id'>) => {
+    const c = await dataService.addBudget(data);
+    queryClient.setQueryData(QK.budgets(), (old: Budget[] = []) => [...old, c]);
+  };
+  const updateBudget = async (id: string, data: Partial<Budget>) => {
+    const c = await dataService.updateBudget(id, data);
+    queryClient.setQueryData(QK.budgets(), (old: Budget[] = []) => old.map(x => x.id === id ? c : x));
+  };
+  const deleteBudget = async (id: string) => {
+    await dataService.deleteBudget(id);
+    queryClient.setQueryData(QK.budgets(), (old: Budget[] = []) => old.filter(x => x.id !== id));
+  };
 
   // ─── Budget Group actions ─────────────────────────────────────────────────
-  const addBudgetGroup = async (data: Omit<BudgetGroup, 'id'>) => { const c = await dataService.addBudgetGroup(data); setBudgetGroups(p => [...p, c]); };
-  const updateBudgetGroup = async (id: string, data: Partial<BudgetGroup>) => { const c = await dataService.updateBudgetGroup(id, data); setBudgetGroups(p => p.map(x => x.id === id ? c : x)); };
+  const addBudgetGroup = async (data: Omit<BudgetGroup, 'id'>) => {
+    const c = await dataService.addBudgetGroup(data);
+    queryClient.setQueryData(QK.budgetGroups(), (old: BudgetGroup[] = []) => [...old, c]);
+  };
+  const updateBudgetGroup = async (id: string, data: Partial<BudgetGroup>) => {
+    const c = await dataService.updateBudgetGroup(id, data);
+    queryClient.setQueryData(QK.budgetGroups(), (old: BudgetGroup[] = []) => old.map(x => x.id === id ? c : x));
+  };
   const deleteBudgetGroup = async (id: string) => {
     await dataService.deleteBudgetGroup(id);
-    setBudgetGroups(p => p.filter(x => x.id !== id));
-    setBudgets(p => p.map(b => b.groupId === id ? { ...b, groupId: undefined } : b));
+    queryClient.setQueryData(QK.budgetGroups(), (old: BudgetGroup[] = []) => old.filter(x => x.id !== id));
+    // Also clear groupId from any budget that referenced this group
+    queryClient.setQueryData(QK.budgets(), (old: Budget[] = []) =>
+      old.map(b => b.groupId === id ? { ...b, groupId: undefined } : b)
+    );
   };
 
   // ─── Bank actions ─────────────────────────────────────────────────────────
-  const addBank = async (data: Omit<BankAccount, 'id'>) => { const c = await dataService.addBank(data); setBanks(p => [...p, c]); };
-  const updateBank = async (id: string, data: Partial<BankAccount>) => { const c = await dataService.updateBank(id, data); setBanks(p => p.map(x => x.id === id ? c : x)); };
-  const deleteBank = async (id: string) => { await dataService.deleteBank(id); setBanks(p => p.filter(x => x.id !== id)); };
+  const addBank = async (data: Omit<BankAccount, 'id'>) => {
+    const c = await dataService.addBank(data);
+    queryClient.setQueryData(QK.banks(), (old: BankAccount[] = []) => [...old, c]);
+  };
+  const updateBank = async (id: string, data: Partial<BankAccount>) => {
+    const c = await dataService.updateBank(id, data);
+    queryClient.setQueryData(QK.banks(), (old: BankAccount[] = []) => old.map(x => x.id === id ? c : x));
+  };
+  const deleteBank = async (id: string) => {
+    await dataService.deleteBank(id);
+    queryClient.setQueryData(QK.banks(), (old: BankAccount[] = []) => old.filter(x => x.id !== id));
+  };
 
   // ─── Transfer actions ─────────────────────────────────────────────────────
   const addTransfer = async (data: Omit<Transfer, 'id'>) => {
     const created = await dataService.addTransfer(data);
-    setTransfers(prev => [created, ...prev]);
+    queryClient.setQueryData(QK.transfers(), (old: Transfer[] = []) => [created, ...old]);
   };
   const updateTransfer = async (id: string, data: Partial<Transfer>) => {
     const updated = await dataService.updateTransfer(id, data);
-    setTransfers(prev => prev.map(t => t.id === id ? updated : t));
+    queryClient.setQueryData(QK.transfers(), (old: Transfer[] = []) => old.map(t => t.id === id ? updated : t));
   };
   const deleteTransfer = async (id: string) => {
     await dataService.deleteTransfer(id);
-    setTransfers(prev => prev.filter(t => t.id !== id));
+    queryClient.setQueryData(QK.transfers(), (old: Transfer[] = []) => old.filter(t => t.id !== id));
   };
 
   // ─── Settings ─────────────────────────────────────────────────────────────
@@ -304,14 +464,17 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     if (data.theme) applyTheme(data.theme);
   };
 
-  const loadSampleData = async () => { await dataService.loadSampleData(); await refreshData(); };
+  const loadSampleData = async () => {
+    await dataService.loadSampleData();
+    await queryClient.invalidateQueries();
+  };
 
   return (
     <FinanceContext.Provider value={{
       categories, subcategories, transactions, scheduled, cards, invoices,
       budgets, budgetGroups, banks, transfers,
       settings, loading,
-      refreshData,
+      refreshData, loadMoreTransactions, hasMoreTransactions,
       addCategory, updateCategory, deleteCategory,
       addSubcategory, updateSubcategory, deleteSubcategory,
       addTransaction, addInstallments, updateTransaction, deleteTransaction, deleteTransactions, deleteInstallmentGroup,

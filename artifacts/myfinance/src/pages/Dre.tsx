@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useFinance } from '@/context/FinanceContext';
+import { dataService } from '@/services/dataService';
 import { usePrivacy } from '@/context/PrivacyContext';
 import { formatCurrency } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -218,7 +220,13 @@ const PERIOD_OPTIONS: { value: Period; label: string }[] = [
 ];
 
 export const Dre = () => {
-  const { transactions, categories, subcategories } = useFinance();
+  const { categories, subcategories } = useFinance();
+  // Full transaction history — not limited to 12 months, for year/custom/12-month-chart views
+  const { data: transactions = [] } = useQuery({
+    queryKey: ['transactions', 'all'],
+    queryFn: dataService.getAllTransactionsForReports,
+    staleTime: 60_000,
+  });
   const { hideValues } = usePrivacy();
   const mask = (n: number) => hideValues ? 'R$ ••••••' : formatCurrency(n);
 
