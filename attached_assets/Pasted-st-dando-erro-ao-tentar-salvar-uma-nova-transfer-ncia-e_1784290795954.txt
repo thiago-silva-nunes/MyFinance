@@ -1,0 +1,15 @@
+stá dando erro ao tentar salvar uma nova transferência entre contas (mensagem genérica "Erro ao salvar transferência"). Preciso que você:
+1. Primeiro, descubra a causa real do erro
+
+Verifique se a função que salva a transferência (provavelmente em dataService.ts ou equivalente) está usando extractErrorMessage(err) (como já é feito no CardFormDialog.tsx e TransactionFormDialog.tsx) para exibir a mensagem de erro real do Supabase no toast, em vez de um texto genérico fixo. Se não estiver, corrija para exibir a mensagem detalhada.
+Depois de corrigir isso, tente salvar a transferência de novo e me diga qual é a mensagem de erro exata que aparece (ex: código de erro do Postgres, RLS, coluna inexistente, etc.).
+
+2. Enquanto isso, verifique as causas mais prováveis (baseado no padrão de bugs que já tivemos no projeto):
+
+RLS/policy da tabela transfers: confirme que a tabela tem RLS habilitado e a policy using (auth.uid() = user_id) with check (auth.uid() = user_id) criada corretamente — igual ao bug que tivemos antes com subcategories.
+Campo user_id não enviado no insert: confirme que o código que salva a transferência está enviando o user_id do usuário autenticado (auth.uid() / session.user.id) junto no payload do insert.
+Tabela transfers não existe de fato no banco: confirme rodando uma query simples (select * from transfers limit 1;) no SQL Editor do Supabase — se der erro de tabela inexistente, significa que a migration da tabela transfers não foi executada ainda, e é preciso rodar o schema atualizado.
+Cache do PostgREST desatualizado: se a tabela foi criada recentemente, confirme se já foi rodado NOTIFY pgrst, 'reload schema'; ou Settings → API → Reload schema depois da criação da tabela transfers.
+Constraint de from_bank_id != to_bank_id: confirme que os IDs de conta de origem e destino selecionados no formulário (Nubank e Bradesco, no meu teste) não estão sendo enviados iguais por engano (bug de estado do formulário).
+
+Depois de identificar e corrigir a causa raiz, teste novamente registrando uma transferência de R$ 5.000 entre duas contas diferentes, e confirme que ela aparece na listagem de transações e que o saldo das duas contas é atualizado corretamente.

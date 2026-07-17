@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { Transfer } from '@/data/mockData';
+import { extractErrorMessage } from '@/services/dataService';
 import { Loader2, ArrowRightLeft } from 'lucide-react';
 import { getIcon } from '@/components/IconMap';
 
@@ -82,7 +83,7 @@ export const TransferFormDialog = ({ open, onOpenChange, transfer }: TransferFor
       }
       onOpenChange(false);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Erro ao salvar transferência');
+      toast.error(`Erro ao salvar transferência: ${extractErrorMessage(err)}`);
     }
   };
 
