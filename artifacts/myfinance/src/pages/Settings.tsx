@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useFinance } from '@/context/FinanceContext';
 import { useAuth } from '@/context/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Moon, Sun, DollarSign, Database, LogOut, Loader2, Cloud, Bell, BellOff, BellRing, Plus, Edit2, Trash2, Building2 } from 'lucide-react';
+import { Moon, Sun, DollarSign, Database, LogOut, Loader2, Cloud, Bell, BellOff, BellRing, Plus, Edit2, Trash2, Building2, TrendingUp, TrendingDown } from 'lucide-react';
+import { formatCurrency } from '@/lib/utils';
 import { toast } from 'sonner';
 import {
   isNotificationSupported, getNotificationPermission,
@@ -29,7 +30,25 @@ const ACCOUNT_TYPE_LABELS: Record<string, string> = {
 };
 
 function BanksPanel() {
-  const { banks, deleteBank } = useFinance();
+  const { banks, deleteBank, transactions, transfers } = useFinance();
+
+  // Calculate current balance per bank: initialBalance + income txns - expense txns - sent transfers + received transfers
+  const bankBalances = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const bank of banks) {
+      let balance = bank.initialBalance;
+      for (const t of transactions) {
+        if (t.bankId !== bank.id) continue;
+        balance += t.type === 'income' ? t.amount : -t.amount;
+      }
+      for (const tr of transfers) {
+        if (tr.fromBankId === bank.id) balance -= tr.amount;
+        if (tr.toBankId === bank.id)   balance += tr.amount;
+      }
+      map[bank.id] = balance;
+    }
+    return map;
+  }, [banks, transactions, transfers]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<BankAccount | null>(null);
 
@@ -83,11 +102,21 @@ function BanksPanel() {
                       <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: `${bank.color}20` }}>
                         <Icon className="w-5 h-5" style={{ color: bank.color }} />
                       </div>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className="font-semibold text-sm truncate">{bank.name}</p>
                         <Badge variant="secondary" className="text-[10px] h-4 px-1.5 mt-0.5">
                           {ACCOUNT_TYPE_LABELS[bank.type] ?? bank.type}
                         </Badge>
+                        {/* Calculated balance */}
+                        {(() => {
+                          const bal = bankBalances[bank.id] ?? bank.initialBalance;
+                          const isPositive = bal >= 0;
+                          return (
+                            <p className={`text-xs font-semibold mt-1 ${isPositive ? 'text-emerald-600' : 'text-destructive'}`}>
+                              {formatCurrency(bal)}
+                            </p>
+                          );
+                        })()}
                       </div>
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

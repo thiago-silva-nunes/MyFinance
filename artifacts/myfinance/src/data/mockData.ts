@@ -76,6 +76,15 @@ export interface BankAccount {
   icon: string;
 }
 
+export interface Transfer {
+  id: string;
+  fromBankId: string;
+  toBankId: string;
+  amount: number;
+  date: string;
+  notes?: string;
+}
+
 export interface BudgetGroup {
   id: string;
   name: string;

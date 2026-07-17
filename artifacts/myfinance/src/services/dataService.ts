@@ -968,6 +968,54 @@ export const dataService = {
     if (error) throw error;
   },
 
+  // ─── Transfers ────────────────────────────────────────────────────────────
+
+  getTransfers: async (): Promise<import('../data/mockData').Transfer[]> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    const { data, error } = await supabase
+      .from('transfers')
+      .select('id, from_bank_id, to_bank_id, amount, date, notes')
+      .eq('user_id', user.id)
+      .order('date', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map(row => ({
+      id: row.id, fromBankId: row.from_bank_id, toBankId: row.to_bank_id,
+      amount: Number(row.amount), date: row.date, notes: row.notes ?? undefined,
+    }));
+  },
+
+  addTransfer: async (t: Omit<import('../data/mockData').Transfer, 'id'>): Promise<import('../data/mockData').Transfer> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    const { data, error } = await supabase
+      .from('transfers')
+      .insert({ user_id: user.id, from_bank_id: t.fromBankId, to_bank_id: t.toBankId, amount: t.amount, date: t.date, notes: t.notes ?? null })
+      .select('id, from_bank_id, to_bank_id, amount, date, notes')
+      .single();
+    if (error) throw error;
+    return { id: data.id, fromBankId: data.from_bank_id, toBankId: data.to_bank_id, amount: Number(data.amount), date: data.date, notes: data.notes ?? undefined };
+  },
+
+  updateTransfer: async (id: string, t: Partial<import('../data/mockData').Transfer>): Promise<import('../data/mockData').Transfer> => {
+    const updates: Record<string, unknown> = {};
+    if (t.fromBankId !== undefined) updates.from_bank_id = t.fromBankId;
+    if (t.toBankId !== undefined) updates.to_bank_id = t.toBankId;
+    if (t.amount !== undefined) updates.amount = t.amount;
+    if (t.date !== undefined) updates.date = t.date;
+    if (t.notes !== undefined) updates.notes = t.notes ?? null;
+    const { data, error } = await supabase
+      .from('transfers').update(updates).eq('id', id)
+      .select('id, from_bank_id, to_bank_id, amount, date, notes').single();
+    if (error) throw error;
+    return { id: data.id, fromBankId: data.from_bank_id, toBankId: data.to_bank_id, amount: Number(data.amount), date: data.date, notes: data.notes ?? undefined };
+  },
+
+  deleteTransfer: async (id: string): Promise<void> => {
+    const { error } = await supabase.from('transfers').delete().eq('id', id);
+    if (error) throw error;
+  },
+
   // ─── Seed data ────────────────────────────────────────────────────────────
 
   loadSampleData: async (): Promise<void> => {

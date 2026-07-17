@@ -1,0 +1,33 @@
+Preciso corrigir 1 bug e implementar 1 feature no meu app de finanças:
+1. BUG — Destaque incorreto ao selecionar Despesa/Receita no cadastro de Categoria
+No formulário de "Nova Categoria" (provavelmente CategoryFormDialog.tsx ou equivalente), os botões "Despesa" e "Receita" têm o mesmo problema já corrigido antes no TransactionFormDialog.tsx: o botão "Receita" está com uma classe de cor fixa (verde) aplicada independente do valor selecionado, então ele aparece sempre destacado mesmo quando "Despesa" é o tipo escolhido.
+Corrija para que:
+
+Quando type === 'expense': botão "Despesa" fica destacado (cor sólida correspondente), botão "Receita" volta ao estado neutro/outline.
+Quando type === 'income': botão "Receita" fica destacado (verde sólido), botão "Despesa" volta ao estado neutro/outline.
+
+Aplique a mesma lógica condicional já usada (ou corrigida) no formulário de transação, para manter consistência visual em todo o app. Aproveite e audite outros lugares do app que tenham esse mesmo padrão de toggle Despesa/Receita (ex: filtros de tela, outros formulários) para garantir que o mesmo bug não exista em outro lugar.
+2. FEATURE — Integração de contas bancárias com registro de transferências entre contas
+Hoje as transações não estão vinculadas a uma conta bancária específica de origem, e não existe forma de registrar uma transferência entre duas contas (ex: mover dinheiro da Conta Corrente para a Poupança, ou para o "saldo" usado para pagar fatura de cartão). Quero rastrear de onde o dinheiro sai e para onde vai. Implemente:
+Banco de dados:
+
+Se a tabela banks (contas bancárias) ainda não tiver, adicione controle de saldo: initial_balance (já deve existir) e considere manter um saldo calculado dinamicamente (soma de initial_balance + todas as movimentações daquela conta), em vez de armazenar saldo fixo, para evitar inconsistência.
+Garanta que a tabela transactions tenha uma coluna bank_id (referência à conta de origem/destino da transação simples de receita/despesa) — adicionar via alter table if not exists caso ainda não exista.
+Criar uma nova tabela transfers para registrar transferências entre contas:
+
+id, user_id, from_bank_id (referência a banks), to_bank_id (referência a banks), amount numeric not null, date date not null, notes text, created_at.
+RLS seguindo o mesmo padrão das demais tabelas (using (auth.uid() = user_id)).
+Validar que from_bank_id e to_bank_id são diferentes (constraint ou validação no frontend).
+
+
+
+Frontend:
+
+No formulário de Nova Transação, adicionar um seletor de "Conta" (banco) para vincular de qual conta saiu ou em qual conta entrou o valor daquela transação — isso deve ser opcional para não quebrar lançamentos que não precisam dessa granularidade (ex: gastos no cartão de crédito continuam vinculados ao cartão, não a uma conta bancária diretamente).
+Criar um novo tipo de lançamento "Transferência" (pode ser um botão/aba separada na tela de Transações ou dentro do mesmo modal, com um terceiro tipo além de Despesa/Receita), com campos: Conta de origem, Conta de destino, Valor, Data, Observação (opcional).
+Ao salvar uma transferência, não deve contar como receita nem despesa no DRE (já que é apenas movimentação entre contas do próprio usuário), mas deve impactar o saldo calculado de cada conta (diminuir da origem, aumentar no destino).
+Na tela de Bancos (Configurações → Bancos), exibir o saldo atual calculado de cada conta (inicial + entradas − saídas − transferências enviadas + transferências recebidas).
+Na listagem de Transações, exibir também as transferências (com um ícone/indicador visual diferente, tipo "↔ Transferência: Conta X → Conta Y"), permitindo editar/excluir como as demais.
+Considere permitir filtrar a tela de Transações por conta bancária também (além dos filtros já existentes de tipo/categoria/status).
+
+Depois de implementar, teste o fluxo completo: cadastrar 2 contas bancárias com saldo inicial, registrar uma transferência entre elas, confirmar que o saldo de ambas atualiza corretamente, que a transferência aparece na listagem de transações mas não impacta o DRE, e que os botões Despesa/Receita destacam corretamente em todos os formulários do app.

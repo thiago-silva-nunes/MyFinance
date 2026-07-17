@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { IconMap, getIcon } from '@/components/IconMap';
 import { toast } from 'sonner';
 import { Category } from '@/data/mockData';
+import { cn } from '@/lib/utils';
 
 const categorySchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório'),
@@ -98,7 +99,7 @@ export const CategoryFormDialog = ({ open, onOpenChange, category }: CategoryFor
                     Despesa
                   </Button>
                   <Button type="button" variant={field.value === 'income' ? 'default' : 'outline'}
-                    className="w-full bg-success text-success-foreground hover:bg-success/90"
+                    className={cn('w-full', field.value === 'income' && 'bg-success text-success-foreground hover:bg-success/90')}
                     onClick={() => { field.onChange('income'); form.setValue('dreGroup', 'receita'); }}>
                     Receita
                   </Button>

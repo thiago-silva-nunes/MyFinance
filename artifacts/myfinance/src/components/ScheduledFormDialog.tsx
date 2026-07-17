@@ -129,7 +129,7 @@ export const ScheduledFormDialog = ({ open, onOpenChange, scheduled }: Scheduled
                       <Button
                         type="button"
                         variant={field.value === 'income' ? 'default' : 'outline'}
-                        className="w-full bg-success text-success-foreground hover:bg-success/90"
+                        className={`w-full ${field.value === 'income' ? 'bg-success text-success-foreground hover:bg-success/90' : ''}`}
                         onClick={() => {
                           field.onChange('income');
                           form.setValue('categoryId', '');

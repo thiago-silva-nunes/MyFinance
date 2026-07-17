@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { Category, Subcategory, Transaction, ScheduledTransaction, CreditCard, Invoice, Budget, BankAccount, BudgetGroup } from '../data/mockData';
+import { Category, Subcategory, Transaction, ScheduledTransaction, CreditCard, Invoice, Budget, BankAccount, BudgetGroup, Transfer } from '../data/mockData';
 import { dataService } from '../services/dataService';
 import { useAuth } from './AuthContext';
 
@@ -13,6 +13,7 @@ interface FinanceContextType {
   budgets: Budget[];
   budgetGroups: BudgetGroup[];
   banks: BankAccount[];
+  transfers: Transfer[];
   settings: { currency: string; theme: 'light' | 'dark' };
   loading: boolean;
 
@@ -54,6 +55,10 @@ interface FinanceContextType {
   updateBank: (id: string, data: Partial<BankAccount>) => Promise<void>;
   deleteBank: (id: string) => Promise<void>;
 
+  addTransfer: (data: Omit<Transfer, 'id'>) => Promise<void>;
+  updateTransfer: (id: string, data: Partial<Transfer>) => Promise<void>;
+  deleteTransfer: (id: string) => Promise<void>;
+
   updateSettings: (data: Partial<{ currency: string; theme: 'light' | 'dark' }>) => void;
   loadSampleData: () => Promise<void>;
 }
@@ -72,6 +77,7 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   const [budgets, setBudgets]             = useState<Budget[]>([]);
   const [budgetGroups, setBudgetGroups]   = useState<BudgetGroup[]>([]);
   const [banks, setBanks]                 = useState<BankAccount[]>([]);
+  const [transfers, setTransfers]         = useState<Transfer[]>([]);
   const [settings, setSettings]           = useState<{ currency: string; theme: 'light' | 'dark' }>({ currency: 'BRL', theme: 'light' });
   const [loading, setLoading]             = useState(true);
 
@@ -89,12 +95,12 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   const refreshData = useCallback(async () => {
     if (!user) {
       setCategories([]); setSubcategories([]); setTransactions([]); setScheduled([]);
-      setCards([]); setInvoices([]); setBanks([]); setLoading(false);
+      setCards([]); setInvoices([]); setBanks([]); setTransfers([]); setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const [cats, subs, txns, sched, crds, invs, bdgs, bgrps, bnks] = await Promise.all([
+      const [cats, subs, txns, sched, crds, invs, bdgs, bgrps, bnks, tfs] = await Promise.all([
         dataService.getCategories(),
         dataService.getSubcategories().catch(() => [] as Subcategory[]),
         dataService.getTransactions(),
@@ -104,6 +110,7 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
         dataService.getBudgets().catch(() => [] as Budget[]),
         dataService.getBudgetGroups().catch(() => [] as BudgetGroup[]),
         dataService.getBanks().catch(() => [] as BankAccount[]),
+        dataService.getTransfers().catch(() => [] as Transfer[]),
       ]);
       setCategories(cats);
       setSubcategories(subs);
@@ -114,6 +121,7 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
       setBudgets(bdgs);
       setBudgetGroups(bgrps);
       setBanks(bnks);
+      setTransfers(tfs);
     } catch (err) {
       console.error('[FinanceContext] Error loading data:', err);
     } finally {
@@ -123,56 +131,27 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => { refreshData(); }, [refreshData]);
 
-  // ─── Partial refresh helpers ───────────────────────────────────────────────
-
   const refreshTransactionsAndInvoices = useCallback(async () => {
-    const [txns, invs] = await Promise.all([
-      dataService.getTransactions(),
-      dataService.getInvoices(),
-    ]);
+    const [txns, invs] = await Promise.all([dataService.getTransactions(), dataService.getInvoices()]);
     setTransactions(txns);
     setInvoices(invs);
   }, []);
 
-  // ─── Category actions — optimistic ────────────────────────────────────────
+  // ─── Category actions ─────────────────────────────────────────────────────
+  const addCategory = async (data: Omit<Category, 'id'>) => { const c = await dataService.addCategory(data); setCategories(p => [...p, c]); };
+  const updateCategory = async (id: string, data: Partial<Category>) => { const c = await dataService.updateCategory(id, data); setCategories(p => p.map(x => x.id === id ? c : x)); };
+  const deleteCategory = async (id: string) => { await dataService.deleteCategory(id); setCategories(p => p.filter(x => x.id !== id)); };
 
-  const addCategory = async (data: Omit<Category, 'id'>) => {
-    const created = await dataService.addCategory(data);
-    setCategories(prev => [...prev, created]);
-  };
-  const updateCategory = async (id: string, data: Partial<Category>) => {
-    const updated = await dataService.updateCategory(id, data);
-    setCategories(prev => prev.map(c => c.id === id ? updated : c));
-  };
-  const deleteCategory = async (id: string) => {
-    await dataService.deleteCategory(id);
-    setCategories(prev => prev.filter(c => c.id !== id));
-  };
-
-  // ─── Subcategory actions — optimistic ─────────────────────────────────────
-
-  const addSubcategory = async (data: Omit<Subcategory, 'id'>) => {
-    const created = await dataService.addSubcategory(data);
-    setSubcategories(prev => [...prev, created]);
-  };
-  const updateSubcategory = async (id: string, data: Partial<Omit<Subcategory, 'id'>>) => {
-    const updated = await dataService.updateSubcategory(id, data);
-    setSubcategories(prev => prev.map(s => s.id === id ? updated : s));
-  };
-  const deleteSubcategory = async (id: string) => {
-    await dataService.deleteSubcategory(id);
-    setSubcategories(prev => prev.filter(s => s.id !== id));
-  };
+  // ─── Subcategory actions ──────────────────────────────────────────────────
+  const addSubcategory = async (data: Omit<Subcategory, 'id'>) => { const c = await dataService.addSubcategory(data); setSubcategories(p => [...p, c]); };
+  const updateSubcategory = async (id: string, data: Partial<Omit<Subcategory, 'id'>>) => { const c = await dataService.updateSubcategory(id, data); setSubcategories(p => p.map(x => x.id === id ? c : x)); };
+  const deleteSubcategory = async (id: string) => { await dataService.deleteSubcategory(id); setSubcategories(p => p.filter(x => x.id !== id)); };
 
   // ─── Transaction actions ───────────────────────────────────────────────────
-
   const addTransaction = async (data: Omit<Transaction, 'id'>) => {
     const created = await dataService.addTransaction(data);
     setTransactions(prev => [created, ...prev]);
-    if (created.cardId) {
-      const invs = await dataService.getInvoices();
-      setInvoices(invs);
-    }
+    if (created.cardId) { const invs = await dataService.getInvoices(); setInvoices(invs); }
   };
 
   const addInstallments = async (data: Omit<Transaction, 'id'>, n: number) => {
@@ -184,20 +163,14 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     const oldCardId = transactions.find(t => t.id === id)?.cardId;
     const updated = await dataService.updateTransaction(id, data);
     setTransactions(prev => prev.map(t => t.id === id ? updated : t));
-    if (updated.cardId || oldCardId) {
-      const invs = await dataService.getInvoices();
-      setInvoices(invs);
-    }
+    if (updated.cardId || oldCardId) { const invs = await dataService.getInvoices(); setInvoices(invs); }
   };
 
   const deleteTransaction = async (id: string) => {
     const existing = transactions.find(t => t.id === id);
     await dataService.deleteTransaction(id);
     setTransactions(prev => prev.filter(t => t.id !== id));
-    if (existing?.cardId) {
-      const invs = await dataService.getInvoices();
-      setInvoices(invs);
-    }
+    if (existing?.cardId) { const invs = await dataService.getInvoices(); setInvoices(invs); }
   };
 
   const deleteTransactions = async (ids: string[]) => {
@@ -205,105 +178,61 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     const affectedHasCard = transactions.some(t => ids.includes(t.id) && !!t.cardId);
     await dataService.deleteTransactions(ids);
     setTransactions(prev => prev.filter(t => !ids.includes(t.id)));
-    if (affectedHasCard) {
-      const invs = await dataService.getInvoices();
-      setInvoices(invs);
-    }
+    if (affectedHasCard) { const invs = await dataService.getInvoices(); setInvoices(invs); }
   };
 
   const deleteInstallmentGroup = async (groupId: string) => {
     const hasCard = transactions.some(t => t.installmentGroupId === groupId && !!t.cardId);
     await dataService.deleteInstallmentGroup(groupId);
     setTransactions(prev => prev.filter(t => t.installmentGroupId !== groupId));
-    if (hasCard) {
-      const invs = await dataService.getInvoices();
-      setInvoices(invs);
-    }
+    if (hasCard) { const invs = await dataService.getInvoices(); setInvoices(invs); }
   };
 
-  // ─── Scheduled actions — optimistic ───────────────────────────────────────
+  // ─── Scheduled actions ────────────────────────────────────────────────────
+  const addScheduled = async (data: Omit<ScheduledTransaction, 'id'>) => { const c = await dataService.addScheduledTransaction(data); setScheduled(p => [...p, c]); };
+  const updateScheduled = async (id: string, data: Partial<ScheduledTransaction>) => { const c = await dataService.updateScheduledTransaction(id, data); setScheduled(p => p.map(x => x.id === id ? c : x)); };
+  const deleteScheduled = async (id: string) => { await dataService.deleteScheduledTransaction(id); setScheduled(p => p.filter(x => x.id !== id)); };
 
-  const addScheduled = async (data: Omit<ScheduledTransaction, 'id'>) => {
-    const created = await dataService.addScheduledTransaction(data);
-    setScheduled(prev => [...prev, created]);
-  };
-  const updateScheduled = async (id: string, data: Partial<ScheduledTransaction>) => {
-    const updated = await dataService.updateScheduledTransaction(id, data);
-    setScheduled(prev => prev.map(s => s.id === id ? updated : s));
-  };
-  const deleteScheduled = async (id: string) => {
-    await dataService.deleteScheduledTransaction(id);
-    setScheduled(prev => prev.filter(s => s.id !== id));
-  };
+  // ─── Card actions ─────────────────────────────────────────────────────────
+  const addCard = async (data: Omit<CreditCard, 'id'>) => { const c = await dataService.addCard(data); setCards(p => [...p, c]); };
+  const updateCard = async (id: string, data: Partial<CreditCard>) => { const c = await dataService.updateCard(id, data); setCards(p => p.map(x => x.id === id ? c : x)); };
+  const deleteCard = async (id: string) => { await dataService.deleteCard(id); setCards(p => p.filter(x => x.id !== id)); };
+  const payInvoice = async (invoice: Invoice, card: CreditCard) => { await dataService.payInvoice(invoice, card); await refreshTransactionsAndInvoices(); };
 
-  // ─── Card actions — optimistic ─────────────────────────────────────────────
+  // ─── Budget actions ───────────────────────────────────────────────────────
+  const addBudget = async (data: Omit<Budget, 'id'>) => { const c = await dataService.addBudget(data); setBudgets(p => [...p, c]); };
+  const updateBudget = async (id: string, data: Partial<Budget>) => { const c = await dataService.updateBudget(id, data); setBudgets(p => p.map(x => x.id === id ? c : x)); };
+  const deleteBudget = async (id: string) => { await dataService.deleteBudget(id); setBudgets(p => p.filter(x => x.id !== id)); };
 
-  const addCard = async (data: Omit<CreditCard, 'id'>) => {
-    const created = await dataService.addCard(data);
-    setCards(prev => [...prev, created]);
-  };
-  const updateCard = async (id: string, data: Partial<CreditCard>) => {
-    const updated = await dataService.updateCard(id, data);
-    setCards(prev => prev.map(c => c.id === id ? updated : c));
-  };
-  const deleteCard = async (id: string) => {
-    await dataService.deleteCard(id);
-    setCards(prev => prev.filter(c => c.id !== id));
-  };
-  const payInvoice = async (invoice: Invoice, card: CreditCard) => {
-    await dataService.payInvoice(invoice, card);
-    await refreshTransactionsAndInvoices();
-  };
-
-  // ─── Budget actions — optimistic ───────────────────────────────────────────
-
-  const addBudget = async (data: Omit<Budget, 'id'>) => {
-    const created = await dataService.addBudget(data);
-    setBudgets(prev => [...prev, created]);
-  };
-  const updateBudget = async (id: string, data: Partial<Budget>) => {
-    const updated = await dataService.updateBudget(id, data);
-    setBudgets(prev => prev.map(b => b.id === id ? updated : b));
-  };
-  const deleteBudget = async (id: string) => {
-    await dataService.deleteBudget(id);
-    setBudgets(prev => prev.filter(b => b.id !== id));
-  };
-
-  // ─── Budget Group actions — optimistic ────────────────────────────────────
-
-  const addBudgetGroup = async (data: Omit<BudgetGroup, 'id'>) => {
-    const created = await dataService.addBudgetGroup(data);
-    setBudgetGroups(prev => [...prev, created]);
-  };
-  const updateBudgetGroup = async (id: string, data: Partial<BudgetGroup>) => {
-    const updated = await dataService.updateBudgetGroup(id, data);
-    setBudgetGroups(prev => prev.map(g => g.id === id ? updated : g));
-  };
+  // ─── Budget Group actions ─────────────────────────────────────────────────
+  const addBudgetGroup = async (data: Omit<BudgetGroup, 'id'>) => { const c = await dataService.addBudgetGroup(data); setBudgetGroups(p => [...p, c]); };
+  const updateBudgetGroup = async (id: string, data: Partial<BudgetGroup>) => { const c = await dataService.updateBudgetGroup(id, data); setBudgetGroups(p => p.map(x => x.id === id ? c : x)); };
   const deleteBudgetGroup = async (id: string) => {
     await dataService.deleteBudgetGroup(id);
-    setBudgetGroups(prev => prev.filter(g => g.id !== id));
-    // Unlink budgets that belonged to this group (they remain, just ungrouped)
-    setBudgets(prev => prev.map(b => b.groupId === id ? { ...b, groupId: undefined } : b));
+    setBudgetGroups(p => p.filter(x => x.id !== id));
+    setBudgets(p => p.map(b => b.groupId === id ? { ...b, groupId: undefined } : b));
   };
 
-  // ─── Bank actions — optimistic ────────────────────────────────────────────
+  // ─── Bank actions ─────────────────────────────────────────────────────────
+  const addBank = async (data: Omit<BankAccount, 'id'>) => { const c = await dataService.addBank(data); setBanks(p => [...p, c]); };
+  const updateBank = async (id: string, data: Partial<BankAccount>) => { const c = await dataService.updateBank(id, data); setBanks(p => p.map(x => x.id === id ? c : x)); };
+  const deleteBank = async (id: string) => { await dataService.deleteBank(id); setBanks(p => p.filter(x => x.id !== id)); };
 
-  const addBank = async (data: Omit<BankAccount, 'id'>) => {
-    const created = await dataService.addBank(data);
-    setBanks(prev => [...prev, created]);
+  // ─── Transfer actions ─────────────────────────────────────────────────────
+  const addTransfer = async (data: Omit<Transfer, 'id'>) => {
+    const created = await dataService.addTransfer(data);
+    setTransfers(prev => [created, ...prev]);
   };
-  const updateBank = async (id: string, data: Partial<BankAccount>) => {
-    const updated = await dataService.updateBank(id, data);
-    setBanks(prev => prev.map(b => b.id === id ? updated : b));
+  const updateTransfer = async (id: string, data: Partial<Transfer>) => {
+    const updated = await dataService.updateTransfer(id, data);
+    setTransfers(prev => prev.map(t => t.id === id ? updated : t));
   };
-  const deleteBank = async (id: string) => {
-    await dataService.deleteBank(id);
-    setBanks(prev => prev.filter(b => b.id !== id));
+  const deleteTransfer = async (id: string) => {
+    await dataService.deleteTransfer(id);
+    setTransfers(prev => prev.filter(t => t.id !== id));
   };
 
-  // ─── Settings ──────────────────────────────────────────────────────────────
-
+  // ─── Settings ─────────────────────────────────────────────────────────────
   const updateSettings = (data: Partial<{ currency: string; theme: 'light' | 'dark' }>) => {
     dataService.updateSettings(data);
     const updated = { ...settings, ...data };
@@ -316,7 +245,7 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   return (
     <FinanceContext.Provider value={{
       categories, subcategories, transactions, scheduled, cards, invoices,
-      budgets, budgetGroups, banks,
+      budgets, budgetGroups, banks, transfers,
       settings, loading,
       refreshData,
       addCategory, updateCategory, deleteCategory,
@@ -327,6 +256,7 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
       addBudget, updateBudget, deleteBudget,
       addBudgetGroup, updateBudgetGroup, deleteBudgetGroup,
       addBank, updateBank, deleteBank,
+      addTransfer, updateTransfer, deleteTransfer,
       updateSettings, loadSampleData,
     }}>
       {children}
