@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
-import { Category, Subcategory, Transaction, ScheduledTransaction, CreditCard, Invoice, Budget } from '../data/mockData';
+import { Category, Subcategory, Transaction, ScheduledTransaction, CreditCard, Invoice, Budget, BankAccount, BudgetGroup } from '../data/mockData';
 import { dataService } from '../services/dataService';
 import { useAuth } from './AuthContext';
 
@@ -11,6 +11,8 @@ interface FinanceContextType {
   cards: CreditCard[];
   invoices: Invoice[];
   budgets: Budget[];
+  budgetGroups: BudgetGroup[];
+  banks: BankAccount[];
   settings: { currency: string; theme: 'light' | 'dark' };
   loading: boolean;
 
@@ -44,6 +46,14 @@ interface FinanceContextType {
   updateBudget: (id: string, data: Partial<Budget>) => Promise<void>;
   deleteBudget: (id: string) => Promise<void>;
 
+  addBudgetGroup: (data: Omit<BudgetGroup, 'id'>) => Promise<void>;
+  updateBudgetGroup: (id: string, data: Partial<BudgetGroup>) => Promise<void>;
+  deleteBudgetGroup: (id: string) => Promise<void>;
+
+  addBank: (data: Omit<BankAccount, 'id'>) => Promise<void>;
+  updateBank: (id: string, data: Partial<BankAccount>) => Promise<void>;
+  deleteBank: (id: string) => Promise<void>;
+
   updateSettings: (data: Partial<{ currency: string; theme: 'light' | 'dark' }>) => void;
   loadSampleData: () => Promise<void>;
 }
@@ -53,15 +63,17 @@ const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
 export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   const { user } = useAuth();
 
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [categories, setCategories]       = useState<Category[]>([]);
   const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [scheduled, setScheduled] = useState<ScheduledTransaction[]>([]);
-  const [cards, setCards] = useState<CreditCard[]>([]);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [budgets, setBudgets] = useState<Budget[]>([]);
-  const [settings, setSettings] = useState<{ currency: string; theme: 'light' | 'dark' }>({ currency: 'BRL', theme: 'light' });
-  const [loading, setLoading] = useState(true);
+  const [transactions, setTransactions]   = useState<Transaction[]>([]);
+  const [scheduled, setScheduled]         = useState<ScheduledTransaction[]>([]);
+  const [cards, setCards]                 = useState<CreditCard[]>([]);
+  const [invoices, setInvoices]           = useState<Invoice[]>([]);
+  const [budgets, setBudgets]             = useState<Budget[]>([]);
+  const [budgetGroups, setBudgetGroups]   = useState<BudgetGroup[]>([]);
+  const [banks, setBanks]                 = useState<BankAccount[]>([]);
+  const [settings, setSettings]           = useState<{ currency: string; theme: 'light' | 'dark' }>({ currency: 'BRL', theme: 'light' });
+  const [loading, setLoading]             = useState(true);
 
   const applyTheme = (theme: 'light' | 'dark') => {
     if (theme === 'dark') document.documentElement.classList.add('dark');
@@ -77,12 +89,12 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   const refreshData = useCallback(async () => {
     if (!user) {
       setCategories([]); setSubcategories([]); setTransactions([]); setScheduled([]);
-      setCards([]); setInvoices([]); setLoading(false);
+      setCards([]); setInvoices([]); setBanks([]); setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const [cats, subs, txns, sched, crds, invs, bdgs] = await Promise.all([
+      const [cats, subs, txns, sched, crds, invs, bdgs, bgrps, bnks] = await Promise.all([
         dataService.getCategories(),
         dataService.getSubcategories().catch(() => [] as Subcategory[]),
         dataService.getTransactions(),
@@ -90,6 +102,8 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
         dataService.getCards(),
         dataService.getInvoices(),
         dataService.getBudgets().catch(() => [] as Budget[]),
+        dataService.getBudgetGroups().catch(() => [] as BudgetGroup[]),
+        dataService.getBanks().catch(() => [] as BankAccount[]),
       ]);
       setCategories(cats);
       setSubcategories(subs);
@@ -98,6 +112,8 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
       setCards(crds);
       setInvoices(invs);
       setBudgets(bdgs);
+      setBudgetGroups(bgrps);
+      setBanks(bnks);
     } catch (err) {
       console.error('[FinanceContext] Error loading data:', err);
     } finally {
@@ -109,7 +125,6 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
 
   // ─── Partial refresh helpers ───────────────────────────────────────────────
 
-  /** Refetch only transactions + invoices — used after card-related writes that trigger server-side recalcInvoiceTotal. */
   const refreshTransactionsAndInvoices = useCallback(async () => {
     const [txns, invs] = await Promise.all([
       dataService.getTransactions(),
@@ -154,7 +169,6 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   const addTransaction = async (data: Omit<Transaction, 'id'>) => {
     const created = await dataService.addTransaction(data);
     setTransactions(prev => [created, ...prev]);
-    // If it's a card transaction, invoice totals were recalculated server-side
     if (created.cardId) {
       const invs = await dataService.getInvoices();
       setInvoices(invs);
@@ -162,7 +176,6 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const addInstallments = async (data: Omit<Transaction, 'id'>, n: number) => {
-    // dataService doesn't return rows for installments — refetch transactions + invoices only
     await dataService.addInstallments(data, n);
     await refreshTransactionsAndInvoices();
   };
@@ -238,7 +251,6 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     setCards(prev => prev.filter(c => c.id !== id));
   };
   const payInvoice = async (invoice: Invoice, card: CreditCard) => {
-    // Creates a payment transaction + updates invoice status — refetch both
     await dataService.payInvoice(invoice, card);
     await refreshTransactionsAndInvoices();
   };
@@ -258,6 +270,38 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     setBudgets(prev => prev.filter(b => b.id !== id));
   };
 
+  // ─── Budget Group actions — optimistic ────────────────────────────────────
+
+  const addBudgetGroup = async (data: Omit<BudgetGroup, 'id'>) => {
+    const created = await dataService.addBudgetGroup(data);
+    setBudgetGroups(prev => [...prev, created]);
+  };
+  const updateBudgetGroup = async (id: string, data: Partial<BudgetGroup>) => {
+    const updated = await dataService.updateBudgetGroup(id, data);
+    setBudgetGroups(prev => prev.map(g => g.id === id ? updated : g));
+  };
+  const deleteBudgetGroup = async (id: string) => {
+    await dataService.deleteBudgetGroup(id);
+    setBudgetGroups(prev => prev.filter(g => g.id !== id));
+    // Unlink budgets that belonged to this group (they remain, just ungrouped)
+    setBudgets(prev => prev.map(b => b.groupId === id ? { ...b, groupId: undefined } : b));
+  };
+
+  // ─── Bank actions — optimistic ────────────────────────────────────────────
+
+  const addBank = async (data: Omit<BankAccount, 'id'>) => {
+    const created = await dataService.addBank(data);
+    setBanks(prev => [...prev, created]);
+  };
+  const updateBank = async (id: string, data: Partial<BankAccount>) => {
+    const updated = await dataService.updateBank(id, data);
+    setBanks(prev => prev.map(b => b.id === id ? updated : b));
+  };
+  const deleteBank = async (id: string) => {
+    await dataService.deleteBank(id);
+    setBanks(prev => prev.filter(b => b.id !== id));
+  };
+
   // ─── Settings ──────────────────────────────────────────────────────────────
 
   const updateSettings = (data: Partial<{ currency: string; theme: 'light' | 'dark' }>) => {
@@ -271,7 +315,9 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <FinanceContext.Provider value={{
-      categories, subcategories, transactions, scheduled, cards, invoices, budgets, settings, loading,
+      categories, subcategories, transactions, scheduled, cards, invoices,
+      budgets, budgetGroups, banks,
+      settings, loading,
       refreshData,
       addCategory, updateCategory, deleteCategory,
       addSubcategory, updateSubcategory, deleteSubcategory,
@@ -279,6 +325,8 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
       addScheduled, updateScheduled, deleteScheduled,
       addCard, updateCard, deleteCard, payInvoice,
       addBudget, updateBudget, deleteBudget,
+      addBudgetGroup, updateBudgetGroup, deleteBudgetGroup,
+      addBank, updateBank, deleteBank,
       updateSettings, loadSampleData,
     }}>
       {children}

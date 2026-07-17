@@ -26,6 +26,7 @@ export interface Transaction {
   notes?: string;
   scheduledId?: string;
   cardId?: string;           // linked credit card
+  bankId?: string;           // linked bank account (for dinheiro/pix/debito)
   referenceMonth?: string;   // 'YYYY-MM' — which invoice month this belongs to
   installmentGroupId?: string; // UUID shared by all installments of the same purchase
   installmentNumber?: number;  // 1-indexed position (e.g. 2 in a 3x purchase)
@@ -66,6 +67,21 @@ export interface Invoice {
   paidTransactionId?: string;
 }
 
+export interface BankAccount {
+  id: string;
+  name: string;
+  type: 'corrente' | 'poupança' | 'investimento';
+  initialBalance: number;
+  color: string;
+  icon: string;
+}
+
+export interface BudgetGroup {
+  id: string;
+  name: string;
+  totalLimit?: number; // optional aggregate cap; undefined = sum of individual limits
+}
+
 export interface Budget {
   id: string;
   categoryId: string;
@@ -74,6 +90,7 @@ export interface Budget {
   recurrence: 'mensal' | 'pontual';
   referenceMonth?: string; // 'YYYY-MM' — only for recurrence='pontual'
   active: boolean;
+  groupId?: string; // optional — links to a BudgetGroup
 }
 
 export const defaultCategories: Category[] = [

@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { Category, Subcategory, Transaction, ScheduledTransaction, CreditCard, Invoice } from '../data/mockData';
+import type { Category, Subcategory, Transaction, ScheduledTransaction, CreditCard, Invoice, BankAccount, BudgetGroup } from '../data/mockData';
 
 const SETTINGS_KEY = 'myfinance_settings';
 
@@ -297,7 +297,7 @@ export const dataService = {
   getTransactions: async (): Promise<Transaction[]> => {
     const { data, error } = await supabase
       .from('transactions')
-      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, reference_month, installment_group_id, installment_number, installment_total')
+      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, installment_group_id, installment_number, installment_total')
       .order('date', { ascending: false });
     if (error) throw error;
     return (data ?? []).map((row) => ({
@@ -313,6 +313,8 @@ export const dataService = {
       notes: row.notes ?? undefined,
       scheduledId: row.scheduled_id ?? undefined,
       cardId: row.card_id ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      bankId: (row as any).bank_id ?? undefined,
       referenceMonth: row.reference_month ?? undefined,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       installmentGroupId: (row as any).installment_group_id ?? undefined,
@@ -351,9 +353,10 @@ export const dataService = {
         notes: tx.notes ?? null,
         scheduled_id: tx.scheduledId ?? null,
         card_id: tx.cardId ?? null,
+        bank_id: tx.bankId ?? null,
         reference_month: referenceMonth,
       })
-      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, reference_month, installment_group_id, installment_number, installment_total')
+      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, installment_group_id, installment_number, installment_total')
       .single();
     if (error) throw error;
 
@@ -378,7 +381,10 @@ export const dataService = {
       date: data.date,
       status: data.status as 'paid' | 'pending', paymentMethod: data.payment_method ?? undefined,
       notes: data.notes ?? undefined, scheduledId: data.scheduled_id ?? undefined,
-      cardId: data.card_id ?? undefined, referenceMonth: data.reference_month ?? undefined,
+      cardId: data.card_id ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      bankId: (data as any).bank_id ?? undefined,
+      referenceMonth: data.reference_month ?? undefined,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       installmentGroupId: (data as any).installment_group_id ?? undefined,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -463,6 +469,7 @@ export const dataService = {
     if (tx.paymentMethod !== undefined) updates.payment_method = tx.paymentMethod;
     if (tx.notes !== undefined) updates.notes = tx.notes;
     if (tx.scheduledId !== undefined) updates.scheduled_id = tx.scheduledId;
+    if (tx.bankId !== undefined) updates.bank_id = tx.bankId ?? null;
 
     // Recalculate referenceMonth if date or cardId changed
     const newDate = tx.date ? tx.date.split('T')[0] : existing?.date;
@@ -484,7 +491,7 @@ export const dataService = {
       .from('transactions')
       .update(updates)
       .eq('id', id)
-      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, reference_month, installment_group_id, installment_number, installment_total')
+      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, installment_group_id, installment_number, installment_total')
       .single();
     if (error) throw error;
 
@@ -511,7 +518,10 @@ export const dataService = {
       date: data.date,
       status: data.status as 'paid' | 'pending', paymentMethod: data.payment_method ?? undefined,
       notes: data.notes ?? undefined, scheduledId: data.scheduled_id ?? undefined,
-      cardId: data.card_id ?? undefined, referenceMonth: data.reference_month ?? undefined,
+      cardId: data.card_id ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      bankId: (data as any).bank_id ?? undefined,
+      referenceMonth: data.reference_month ?? undefined,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       installmentGroupId: (data as any).installment_group_id ?? undefined,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -792,7 +802,7 @@ export const dataService = {
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('budgets')
-      .select('id, category_id, name, amount, recurrence, reference_month, active')
+      .select('id, category_id, name, amount, recurrence, reference_month, active, group_id')
       .eq('user_id', user.id)
       .order('created_at');
     if (error) throw error;
@@ -804,6 +814,8 @@ export const dataService = {
       recurrence: row.recurrence as 'mensal' | 'pontual',
       referenceMonth: row.reference_month ?? undefined,
       active: row.active,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      groupId: (row as any).group_id ?? undefined,
     }));
   },
 
@@ -820,14 +832,17 @@ export const dataService = {
         recurrence: b.recurrence,
         reference_month: b.referenceMonth ?? null,
         active: b.active,
+        group_id: b.groupId ?? null,
       })
-      .select('id, category_id, name, amount, recurrence, reference_month, active')
+      .select('id, category_id, name, amount, recurrence, reference_month, active, group_id')
       .single();
     if (error) throw error;
     return {
       id: data.id, categoryId: data.category_id, name: data.name,
       amount: Number(data.amount), recurrence: data.recurrence as 'mensal' | 'pontual',
       referenceMonth: data.reference_month ?? undefined, active: data.active,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      groupId: (data as any).group_id ?? undefined,
     };
   },
 
@@ -839,22 +854,117 @@ export const dataService = {
     if (b.recurrence !== undefined) updates.recurrence = b.recurrence;
     if (b.referenceMonth !== undefined) updates.reference_month = b.referenceMonth ?? null;
     if (b.active !== undefined) updates.active = b.active;
+    if (b.groupId !== undefined) updates.group_id = b.groupId ?? null;
     const { data, error } = await supabase
       .from('budgets')
       .update(updates)
       .eq('id', id)
-      .select('id, category_id, name, amount, recurrence, reference_month, active')
+      .select('id, category_id, name, amount, recurrence, reference_month, active, group_id')
       .single();
     if (error) throw error;
     return {
       id: data.id, categoryId: data.category_id, name: data.name,
       amount: Number(data.amount), recurrence: data.recurrence as 'mensal' | 'pontual',
       referenceMonth: data.reference_month ?? undefined, active: data.active,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      groupId: (data as any).group_id ?? undefined,
     };
   },
 
   deleteBudget: async (id: string): Promise<void> => {
     const { error } = await supabase.from('budgets').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  // ─── Banks ────────────────────────────────────────────────────────────────
+
+  getBanks: async (): Promise<BankAccount[]> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    const { data, error } = await supabase
+      .from('banks')
+      .select('id, name, type, initial_balance, color, icon')
+      .eq('user_id', user.id)
+      .order('created_at');
+    if (error) throw error;
+    return (data ?? []).map(row => ({
+      id: row.id, name: row.name, type: row.type as BankAccount['type'],
+      initialBalance: Number(row.initial_balance), color: row.color, icon: row.icon,
+    }));
+  },
+
+  addBank: async (b: Omit<BankAccount, 'id'>): Promise<BankAccount> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    const { data, error } = await supabase
+      .from('banks')
+      .insert({ user_id: user.id, name: b.name, type: b.type, initial_balance: b.initialBalance, color: b.color, icon: b.icon })
+      .select('id, name, type, initial_balance, color, icon')
+      .single();
+    if (error) throw error;
+    return { id: data.id, name: data.name, type: data.type as BankAccount['type'], initialBalance: Number(data.initial_balance), color: data.color, icon: data.icon };
+  },
+
+  updateBank: async (id: string, b: Partial<BankAccount>): Promise<BankAccount> => {
+    const updates: Record<string, unknown> = {};
+    if (b.name !== undefined) updates.name = b.name;
+    if (b.type !== undefined) updates.type = b.type;
+    if (b.initialBalance !== undefined) updates.initial_balance = b.initialBalance;
+    if (b.color !== undefined) updates.color = b.color;
+    if (b.icon !== undefined) updates.icon = b.icon;
+    const { data, error } = await supabase
+      .from('banks').update(updates).eq('id', id)
+      .select('id, name, type, initial_balance, color, icon').single();
+    if (error) throw error;
+    return { id: data.id, name: data.name, type: data.type as BankAccount['type'], initialBalance: Number(data.initial_balance), color: data.color, icon: data.icon };
+  },
+
+  deleteBank: async (id: string): Promise<void> => {
+    const { error } = await supabase.from('banks').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  // ─── Budget Groups ────────────────────────────────────────────────────────
+
+  getBudgetGroups: async (): Promise<BudgetGroup[]> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    const { data, error } = await supabase
+      .from('budget_groups')
+      .select('id, name, total_limit')
+      .eq('user_id', user.id)
+      .order('created_at');
+    if (error) throw error;
+    return (data ?? []).map(row => ({
+      id: row.id, name: row.name,
+      totalLimit: row.total_limit != null ? Number(row.total_limit) : undefined,
+    }));
+  },
+
+  addBudgetGroup: async (g: Omit<BudgetGroup, 'id'>): Promise<BudgetGroup> => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+    const { data, error } = await supabase
+      .from('budget_groups')
+      .insert({ user_id: user.id, name: g.name, total_limit: g.totalLimit ?? null })
+      .select('id, name, total_limit').single();
+    if (error) throw error;
+    return { id: data.id, name: data.name, totalLimit: data.total_limit != null ? Number(data.total_limit) : undefined };
+  },
+
+  updateBudgetGroup: async (id: string, g: Partial<BudgetGroup>): Promise<BudgetGroup> => {
+    const updates: Record<string, unknown> = {};
+    if (g.name !== undefined) updates.name = g.name;
+    if (g.totalLimit !== undefined) updates.total_limit = g.totalLimit ?? null;
+    const { data, error } = await supabase
+      .from('budget_groups').update(updates).eq('id', id)
+      .select('id, name, total_limit').single();
+    if (error) throw error;
+    return { id: data.id, name: data.name, totalLimit: data.total_limit != null ? Number(data.total_limit) : undefined };
+  },
+
+  deleteBudgetGroup: async (id: string): Promise<void> => {
+    const { error } = await supabase.from('budget_groups').delete().eq('id', id);
     if (error) throw error;
   },
 

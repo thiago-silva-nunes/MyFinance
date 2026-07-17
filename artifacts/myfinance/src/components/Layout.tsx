@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import {
-  LayoutDashboard, Receipt, Tags, CalendarClock, LineChart,
-  Settings, Wallet, LogOut, Plus, MoreHorizontal, CreditCard, BarChart2,
+  LayoutDashboard, Receipt, CalendarClock, LineChart,
+  Settings, Wallet, LogOut, Plus, MoreHorizontal, BarChart2,
   Eye, EyeOff, Target,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -23,8 +23,6 @@ import {
 const navItems = [
   { href: '/',             label: 'Dashboard',   icon: LayoutDashboard },
   { href: '/transactions', label: 'Transações',  icon: Receipt },
-  { href: '/categories',   label: 'Categorias',  icon: Tags },
-  { href: '/cards',        label: 'Cartões',     icon: CreditCard },
   { href: '/orcamentos',   label: 'Orçamentos',  icon: Target },
   { href: '/scheduled',    label: 'Recorrentes', icon: CalendarClock },
   { href: '/dre',          label: 'DRE',         icon: BarChart2 },

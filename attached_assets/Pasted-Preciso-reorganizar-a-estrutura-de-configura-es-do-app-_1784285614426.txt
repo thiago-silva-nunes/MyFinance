@@ -1,0 +1,37 @@
+Preciso reorganizar a estrutura de configurações do app e melhorar a funcionalidade de Orçamentos, além de revisar performance. Segue detalhado:
+1. FEATURE — Cadastro e controle de Bancos em Configurações
+Crie uma nova seção dentro de Configurações chamada "Bancos" (ou "Contas Bancárias"), com CRUD completo:
+
+Criar uma nova tabela banks no Supabase (id, user_id, name, type — ex: corrente/poupança/investimento, initial_balance numeric default 0, color, icon, created_at), com RLS seguindo o mesmo padrão das outras tabelas (using (auth.uid() = user_id)).
+Tela em Configurações para listar, criar, editar e excluir bancos/contas.
+Avalie se as transações (transactions) devem ganhar uma referência opcional bank_id (para o usuário saber de qual conta saiu/entrou o dinheiro) — se fizer sentido para o fluxo atual do app, adicione essa coluna via migration idempotente (add column if not exists) e inclua um seletor de banco/conta no formulário de transação (opcional, sem quebrar transações antigas que não têm banco definido).
+Se o app já tiver alguma noção de "saldo" ou "conta" em outro lugar do código, unifique com essa nova estrutura ao invés de duplicar conceito.
+
+2. REORGANIZAÇÃO — Mover cadastro de Categorias para Configurações
+Atualmente o cadastro/gestão de categorias está em outro lugar do menu (fora de Configurações). Mova essa funcionalidade para dentro de Configurações, junto com Bancos, criando uma navegação clara (ex: abas ou sub-menu dentro de Configurações: "Categorias", "Subcategorias", "Bancos", "Cartões"). Isso deve incluir:
+
+Manter toda a funcionalidade já existente de criar/editar/excluir categorias e subcategorias, apenas mudando o local de acesso no menu.
+Atualizar links/rotas internas do app que apontavam para a tela antiga de categorias, para não haver link quebrado.
+Se fizer sentido, mova também o cadastro de Cartões de Crédito para essa mesma área de Configurações, mantendo tudo relacionado a "cadastros" agrupado num único lugar, mais fácil de encontrar.
+
+3. FEATURE — Orçamentos agrupados (categorias dentro de grupos)
+Hoje cada orçamento é vinculado a uma única categoria. Quero evoluir para permitir orçamentos agrupados, onde um "grupo" pode conter várias categorias dentro dele, com um limite total do grupo e/ou limites individuais por categoria. Exemplo: um grupo "Casa" contendo as categorias Moradia, Contas de Consumo, Manutenção — com visualização em árvore/expansível.
+Implemente:
+
+Nova tabela budget_groups (id, user_id, name, month ou período, total_limit numeric opcional, created_at).
+Alterar a tabela de orçamentos existente (budgets ou nome equivalente) para ter uma coluna opcional group_id referenciando budget_groups — orçamentos sem grupo continuam funcionando normalmente (retrocompatibilidade).
+Na tela de Orçamentos, permitir criar um grupo, e dentro dele adicionar/remover categorias existentes com seus respectivos limites individuais.
+A visualização deve ficar como uma lista expansível: o grupo aparece com barra de progresso agregada (soma de todas as categorias dentro dele vs. limite total do grupo, se definido, ou soma dos limites individuais), e ao expandir, mostra cada categoria do grupo com sua própria barra de progresso — similar à estrutura em árvore que já existe no DRE (Estrutura do DRE), reaproveitando esse padrão visual se possível.
+Orçamentos que não pertencem a nenhum grupo continuam aparecendo soltos, como estão hoje.
+Mantenha a funcionalidade de ocultar valores (ícone de olho) funcionando também nessa nova visualização de orçamentos agrupados.
+
+4. PERFORMANCE — Revisão geral de velocidade do app
+Faça uma auditoria de performance no app (carregamento de páginas, troca de abas, salvamento de formulários) e identifique/corrija pontos comuns de lentidão, como:
+
+Chamadas duplicadas ou desnecessárias ao Supabase (ex: refetch de dados que já estão em cache/contexto).
+Componentes que re-renderizam mais do que deveriam (verificar uso de useMemo, useCallback, React.memo onde fizer sentido).
+Falta de índices no banco para colunas usadas em filtros frequentes (ex: user_id, category_id, date, reference_month, card_id nas tabelas transactions, invoices) — gerar create index if not exists para essas colunas no schema.sql.
+Verificar se listagens grandes (ex: tela de Transações) estão paginando os dados ou carregando tudo de uma vez sem necessidade.
+Verificar se há loading states adequados para não parecer que o app "travou" durante requisições.
+
+Ao final, me dê um resumo do que foi encontrado e corrigido em termos de performance, e teste o fluxo completo: criar um banco, mover-se entre as novas abas de Configurações, criar um grupo de orçamento com 2-3 categorias dentro, e confirmar que os valores/progressos somam corretamente e que a navegação geral do app está mais rápida.

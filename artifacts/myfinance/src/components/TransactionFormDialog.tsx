@@ -12,22 +12,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { getIcon } from '@/components/IconMap';
 import { toast } from 'sonner';
 import { Transaction } from '@/data/mockData';
-import { CreditCard, Info, Loader2 } from 'lucide-react';
+import { CreditCard, Info, Loader2, Building2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const transactionSchema = z.object({
-  description: z.string().min(1, 'Descrição é obrigatória'),
-  amount: z.coerce.number().min(0.01, 'Valor deve ser maior que zero'),
-  type: z.enum(['income', 'expense']),
-  categoryId: z.string().min(1, 'Categoria é obrigatória'),
+  description:   z.string().min(1, 'Descrição é obrigatória'),
+  amount:        z.coerce.number().min(0.01, 'Valor deve ser maior que zero'),
+  type:          z.enum(['income', 'expense']),
+  categoryId:    z.string().min(1, 'Categoria é obrigatória'),
   subcategoryId: z.string().optional(),
-  date: z.string().min(1, 'Data é obrigatória'),
-  status: z.enum(['paid', 'pending']),
+  date:          z.string().min(1, 'Data é obrigatória'),
+  status:        z.enum(['paid', 'pending']),
   paymentMethod: z.string().optional(),
-  cardId: z.string().optional(),
-  notes: z.string().optional(),
-  purchaseType: z.enum(['avista', 'parcelado']).default('avista'),
-  installments: z.coerce.number().min(2).max(24).default(2),
+  cardId:        z.string().optional(),
+  bankId:        z.string().optional(),
+  notes:         z.string().optional(),
+  purchaseType:  z.enum(['avista', 'parcelado']).default('avista'),
+  installments:  z.coerce.number().min(2).max(24).default(2),
 });
 
 interface TransactionFormProps {
@@ -38,7 +39,7 @@ interface TransactionFormProps {
 }
 
 export const TransactionFormDialog = ({ open, onOpenChange, transaction, defaultCardId }: TransactionFormProps) => {
-  const { categories, subcategories, cards, addTransaction, updateTransaction, addInstallments } = useFinance();
+  const { categories, subcategories, cards, banks, addTransaction, updateTransaction, addInstallments } = useFinance();
 
   const form = useForm<z.infer<typeof transactionSchema>>({
     resolver: zodResolver(transactionSchema),
@@ -48,6 +49,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
       date: new Date().toISOString().split('T')[0], status: 'paid',
       paymentMethod: defaultCardId ? 'cartao_credito' : 'dinheiro',
       cardId: defaultCardId ?? '',
+      bankId: '',
       notes: '',
       purchaseType: 'avista',
       installments: 2,
@@ -65,6 +67,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
           date: transaction.date.split('T')[0], status: transaction.status,
           paymentMethod: isCard ? 'cartao_credito' : (transaction.paymentMethod || 'dinheiro'),
           cardId: transaction.cardId ?? '',
+          bankId: transaction.bankId ?? '',
           notes: transaction.notes || '',
           purchaseType: 'avista',
           installments: 2,
@@ -76,6 +79,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
           date: new Date().toISOString().split('T')[0], status: 'paid',
           paymentMethod: defaultCardId ? 'cartao_credito' : 'dinheiro',
           cardId: defaultCardId ?? '',
+          bankId: '',
           notes: '',
           purchaseType: 'avista',
           installments: 2,
@@ -84,15 +88,19 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
     }
   }, [open, transaction, defaultCardId, form]);
 
-  const type = form.watch('type');
-  const paymentMethod = form.watch('paymentMethod');
-  const purchaseType = form.watch('purchaseType');
+  const type             = form.watch('type');
+  const paymentMethod    = form.watch('paymentMethod');
+  const purchaseType     = form.watch('purchaseType');
   const selectedCategoryId = form.watch('categoryId');
-  const isCardPayment = type === 'expense' && paymentMethod === 'cartao_credito';
-  const filteredCategories = categories.filter(c => c.type === type);
-  const isNewInstallment = isCardPayment && !transaction && purchaseType === 'parcelado';
 
-  // Subcategories belonging to the selected category
+  const isCardPayment    = type === 'expense' && paymentMethod === 'cartao_credito';
+  const showBankSelector = banks.length > 0
+    && paymentMethod !== 'cartao_credito'
+    && paymentMethod !== 'dinheiro_pix_debito';
+
+  const filteredCategories = categories.filter(c => c.type === type);
+  const isNewInstallment   = isCardPayment && !transaction && purchaseType === 'parcelado';
+
   const availableSubcategories = selectedCategoryId
     ? subcategories.filter(s => s.categoryId === selectedCategoryId)
     : [];
@@ -100,6 +108,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
   const onSubmit = async (data: z.infer<typeof transactionSchema>) => {
     try {
       const cardId = isCardPayment && data.cardId ? data.cardId : undefined;
+      const bankId = !isCardPayment && data.bankId && data.bankId !== '' ? data.bankId : undefined;
       const subcategoryId = data.subcategoryId && data.subcategoryId !== '' ? data.subcategoryId : undefined;
       const payload: Omit<Transaction, 'id'> = {
         description: data.description, amount: data.amount, type: data.type,
@@ -107,7 +116,9 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
         subcategoryId,
         date: data.date, status: data.status,
         paymentMethod: data.paymentMethod || undefined,
-        cardId, notes: data.notes || undefined,
+        cardId,
+        bankId,
+        notes: data.notes || undefined,
       };
 
       if (transaction) {
@@ -137,12 +148,12 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
+
               {/* ── Type toggle ── */}
               <FormField control={form.control} name="type" render={({ field }) => (
                 <FormItem className="col-span-2">
                   <FormLabel>Tipo</FormLabel>
                   <div className="flex gap-2">
-                    {/* Despesa button — destructive (red) when selected, outline when not */}
                     <button
                       type="button"
                       onClick={() => {
@@ -159,8 +170,6 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                     >
                       Despesa
                     </button>
-
-                    {/* Receita button — green when selected, outline when not */}
                     <button
                       type="button"
                       onClick={() => {
@@ -194,15 +203,10 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
               {/* Amount */}
               <FormField control={form.control} name="amount" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>
-                    {isNewInstallment ? 'Valor total (R$)' : 'Valor (R$)'}
-                  </FormLabel>
+                  <FormLabel>{isNewInstallment ? 'Valor total (R$)' : 'Valor (R$)'}</FormLabel>
                   <FormControl>
                     <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="0.00"
+                      type="number" step="0.01" min="0" placeholder="0.00"
                       {...field}
                       value={field.value === 0 ? '' : field.value}
                       onChange={(e) => field.onChange(e.target.valueAsNumber || 0)}
@@ -251,7 +255,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                 </FormItem>
               )} />
 
-              {/* Subcategory — animated, only when a category with subcategories is selected */}
+              {/* Subcategory — animated */}
               <AnimatePresence>
                 {availableSubcategories.length > 0 && (
                   <motion.div
@@ -293,10 +297,10 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                     <Select onValueChange={(v) => {
                       field.onChange(v);
                       if (v !== 'cartao_credito') { form.setValue('cardId', ''); form.setValue('purchaseType', 'avista'); }
+                      if (v === 'cartao_credito') form.setValue('bankId', '');
                     }} value={field.value}>
                       <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                       <SelectContent>
-                        {/* Legacy value — displayed only when editing old transactions */}
                         {field.value === 'dinheiro_pix_debito' && (
                           <SelectItem value="dinheiro_pix_debito">Dinheiro / PIX / Débito (legado)</SelectItem>
                         )}
@@ -312,6 +316,48 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                   </FormItem>
                 )} />
               )}
+
+              {/* Bank account selector — for non-card payments when banks exist */}
+              <AnimatePresence>
+                {showBankSelector && (
+                  <motion.div
+                    key="bank-field"
+                    className="col-span-2"
+                    initial={{ opacity: 0, y: -6, height: 0 }}
+                    animate={{ opacity: 1, y: 0, height: 'auto' }}
+                    exit={{ opacity: 0, y: -6, height: 0 }}
+                    transition={{ duration: 0.15, ease: 'easeOut' }}
+                    style={{ overflow: 'hidden' }}
+                  >
+                    <FormField control={form.control} name="bankId" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          Conta bancária <span className="text-muted-foreground font-normal">(opcional)</span>
+                        </FormLabel>
+                        <Select
+                          onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
+                          value={field.value && field.value !== '' ? field.value : '__none__'}
+                        >
+                          <FormControl><SelectTrigger><SelectValue placeholder="Selecione a conta" /></SelectTrigger></FormControl>
+                          <SelectContent>
+                            <SelectItem value="__none__">— Nenhuma —</SelectItem>
+                            {banks.map((b) => (
+                              <SelectItem key={b.id} value={b.id}>
+                                <div className="flex items-center gap-2">
+                                  <span className="w-2.5 h-2.5 rounded-full inline-block shrink-0" style={{ backgroundColor: b.color }} />
+                                  {b.name}
+                                  <span className="text-muted-foreground text-xs">({b.type})</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Card selector — only when credit card is selected */}
               {isCardPayment && (
@@ -403,7 +449,9 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
             </div>
 
             <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={form.formState.isSubmitting}>Cancelar</Button>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={form.formState.isSubmitting}>
+                Cancelar
+              </Button>
               <Button type="submit" disabled={form.formState.isSubmitting}>
                 {form.formState.isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {isNewInstallment ? 'Lançar parcelado' : 'Salvar'}
