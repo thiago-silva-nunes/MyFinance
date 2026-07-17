@@ -29,7 +29,7 @@ const navItems = [
   { href: '/reports',      label: 'Relatórios',  icon: LineChart },
 ];
 
-const moreItems = ['/orcamentos', '/scheduled', '/dre', '/reports', '/settings'];
+const moreItems = ['/orcamentos', '/scheduled', '/scheduled/analise', '/dre', '/reports', '/settings'];
 
 export const Layout = ({ children }: { children: React.ReactNode }) => {
   const [location] = useLocation();

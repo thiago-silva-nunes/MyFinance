@@ -478,13 +478,19 @@ export const dataService = {
     if (tx.date !== undefined) updates.date = newDate;
     if (tx.cardId !== undefined) updates.card_id = tx.cardId ?? null;
 
-    if (newCardId) {
-      const { data: cardRow } = await supabase.from('credit_cards').select('closing_day').eq('id', newCardId).single();
-      if (cardRow && newDate) {
-        updates.reference_month = getInvoiceReferenceMonth(newDate, cardRow.closing_day);
+    // Only touch reference_month when date or cardId is explicitly changing.
+    // This preserves reference_month set by the recurring engine when only
+    // the status is being updated (e.g. marking a scheduled transaction as paid).
+    const isChangingDateOrCard = tx.date !== undefined || tx.cardId !== undefined;
+    if (isChangingDateOrCard) {
+      if (newCardId) {
+        const { data: cardRow } = await supabase.from('credit_cards').select('closing_day').eq('id', newCardId).single();
+        if (cardRow && newDate) {
+          updates.reference_month = getInvoiceReferenceMonth(newDate, cardRow.closing_day);
+        }
+      } else {
+        updates.reference_month = null;
       }
-    } else {
-      updates.reference_month = null;
     }
 
     const { data, error } = await supabase

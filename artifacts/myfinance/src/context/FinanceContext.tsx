@@ -1,7 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { Category, Subcategory, Transaction, ScheduledTransaction, CreditCard, Invoice, Budget, BankAccount, BudgetGroup, Transfer } from '../data/mockData';
 import { dataService } from '../services/dataService';
+import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
+import {
+  generateAllPendingForCurrentPeriod,
+  generatePendingIfNeeded,
+  regeneratePendingForScheduled,
+  alreadyCheckedThisMonth,
+} from '../services/recurringEngine';
 
 interface FinanceContextType {
   categories: Category[];
@@ -18,6 +25,8 @@ interface FinanceContextType {
   loading: boolean;
 
   refreshData: () => Promise<void>;
+  generatePendingTransaction: (scheduled: ScheduledTransaction) => Promise<Transaction | null>;
+  regeneratePendingTransaction: (scheduled: ScheduledTransaction) => Promise<Transaction | null>;
 
   addCategory: (data: Omit<Category, 'id'>) => Promise<void>;
   updateCategory: (id: string, data: Partial<Category>) => Promise<void>;
@@ -131,6 +140,22 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => { refreshData(); }, [refreshData]);
 
+  // ─── Auto-geração de pendentes recorrentes ─────────────────────────────────
+  // Roda uma vez por mês após os dados serem carregados
+  useEffect(() => {
+    if (loading || !user || scheduled.length === 0) return;
+    if (alreadyCheckedThisMonth()) return;
+
+    supabase.auth.getUser().then(({ data: { user: u } }) => {
+      if (!u) return;
+      generateAllPendingForCurrentPeriod(u.id, scheduled).then((generated) => {
+        if (generated.length > 0) {
+          setTransactions(prev => [...generated, ...prev]);
+        }
+      }).catch(e => console.warn('[FinanceContext] Auto-geração de pendentes falhou:', e));
+    });
+  }, [loading, user, scheduled]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const refreshTransactionsAndInvoices = useCallback(async () => {
     const [txns, invs] = await Promise.all([dataService.getTransactions(), dataService.getInvoices()]);
     setTransactions(txns);
@@ -189,9 +214,48 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   };
 
   // ─── Scheduled actions ────────────────────────────────────────────────────
-  const addScheduled = async (data: Omit<ScheduledTransaction, 'id'>) => { const c = await dataService.addScheduledTransaction(data); setScheduled(p => [...p, c]); };
+  const addScheduled = async (data: Omit<ScheduledTransaction, 'id'>) => {
+    const c = await dataService.addScheduledTransaction(data);
+    setScheduled(p => [...p, c]);
+    // Gera imediatamente a transação pendente para o período atual (se aplicável)
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const tx = await generatePendingIfNeeded(user.id, c);
+        if (tx) setTransactions(prev => [tx, ...prev]);
+      }
+    } catch (e) {
+      console.warn('[FinanceContext] Falha ao gerar transação pendente para nova recorrência:', e);
+    }
+  };
   const updateScheduled = async (id: string, data: Partial<ScheduledTransaction>) => { const c = await dataService.updateScheduledTransaction(id, data); setScheduled(p => p.map(x => x.id === id ? c : x)); };
   const deleteScheduled = async (id: string) => { await dataService.deleteScheduledTransaction(id); setScheduled(p => p.filter(x => x.id !== id)); };
+
+  const generatePendingTransaction = async (scheduled: ScheduledTransaction): Promise<Transaction | null> => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      const tx = await generatePendingIfNeeded(user.id, scheduled);
+      if (tx) setTransactions(prev => [tx, ...prev]);
+      return tx;
+    } catch (e) {
+      console.warn('[FinanceContext] Falha ao gerar transação pendente:', e);
+      return null;
+    }
+  };
+
+  const regeneratePendingTransaction = async (scheduled: ScheduledTransaction): Promise<Transaction | null> => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+      const tx = await regeneratePendingForScheduled(user.id, scheduled);
+      if (tx) setTransactions(prev => [tx, ...prev]);
+      return tx;
+    } catch (e) {
+      console.warn('[FinanceContext] Falha ao regenerar transação pendente:', e);
+      return null;
+    }
+  };
 
   // ─── Card actions ─────────────────────────────────────────────────────────
   const addCard = async (data: Omit<CreditCard, 'id'>) => { const c = await dataService.addCard(data); setCards(p => [...p, c]); };
@@ -252,6 +316,7 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
       addSubcategory, updateSubcategory, deleteSubcategory,
       addTransaction, addInstallments, updateTransaction, deleteTransaction, deleteTransactions, deleteInstallmentGroup,
       addScheduled, updateScheduled, deleteScheduled,
+      generatePendingTransaction, regeneratePendingTransaction,
       addCard, updateCard, deleteCard, payInvoice,
       addBudget, updateBudget, deleteBudget,
       addBudgetGroup, updateBudgetGroup, deleteBudgetGroup,

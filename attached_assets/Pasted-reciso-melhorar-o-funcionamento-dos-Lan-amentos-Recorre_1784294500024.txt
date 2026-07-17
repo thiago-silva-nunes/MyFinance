@@ -1,0 +1,24 @@
+reciso melhorar o funcionamento dos Lançamentos Recorrentes e criar um painel de análise de gastos fixos/recorrentes. Segue detalhado:
+PARTE 1 — Motor de geração de lançamentos recorrentes
+Hoje a tela de "Recorrentes" parece ser apenas um cadastro (regra), sem gerar de fato as transações do período. Preciso que o sistema gere automaticamente uma transação pendente para o período vigente assim que a recorrência é criada ou quando o período novo se inicia. Regras:
+
+Ao criar uma recorrência (ex: start_date = 13/07/26, frequência mensal), o sistema deve gerar imediatamente uma transação vinculada a essa recorrência (scheduled_id já existe na tabela transactions — reaproveitar) com status "pending", referente ao período atual, desde que a data de início já esteja dentro do mês corrente e ainda não tenha sido gerada para esse mês.
+Essa transação pendente pode ser "executada" (marcada como paga) a qualquer momento pelo usuário — ou seja, o botão de check/confirmar pagamento que já existe na tela de Transações deve funcionar normalmente para transações geradas por recorrência, mudando o status de pending para paid e registrando a data real do pagamento.
+Se o usuário quiser, deve poder "re-executar": ou seja, se por engano marcou como pago e quer desfazer, ou se quer gerar novamente a transação daquele mês (caso tenha excluído por engano), deve haver uma forma de regenerar a transação pendente daquele período sem duplicar (validar se já existe uma transação daquela recorrência para aquele mês antes de criar outra).
+Implementar um job/checagem automática (pode ser via trigger no banco, função agendada, ou verificação no carregamento da tela de Recorrentes/Dashboard) que, a cada novo mês/período, gere automaticamente a nova transação pendente daquela recorrência, sem o usuário precisar criar manualmente todo mês.
+Evitar duplicação: nunca gerar duas transações pendentes para a mesma recorrência no mesmo período de referência (reference_month ou mês equivalente baseado em start_date/frequência).
+Considerar as frequências já existentes (once, daily, weekly, monthly, yearly) na lógica de quando gerar a próxima ocorrência.
+O toggle "Ativo" já existente na tela deve controlar se a recorrência continua gerando novas transações pendentes nos próximos períodos (active = false pausa a geração, sem apagar o histórico já gerado).
+
+PARTE 2 — Painel de análise de gastos recorrentes/fixos
+Criar uma nova tela (ou seção dedicada, ex: "Recorrentes → Análise" ou um dashboard próprio) para visualizar os gastos recorrentes de forma detalhada, com o objetivo de ajudar o usuário a identificar oportunidades de redução de custos fixos. Deve conter:
+
+Seletor de período: mês específico, ano, ou intervalo customizado (reaproveitar o padrão de filtro de período já usado no Dashboard/DRE).
+Total de gastos recorrentes no período selecionado, com comparação percentual em relação ao período anterior (ex: "+12% vs mês passado").
+Agrupamento por categoria: soma de todos os gastos recorrentes por categoria (ex: Assinaturas: R$ 93,80, Despesas Financeiras: R$ 496,00, Transporte: R$ 2.000,00), ordenado do maior para o menor, com gráfico de barras ou pizza mostrando a proporção de cada categoria no total.
+Evolução histórica: gráfico de linha/barras mostrando o total de gastos recorrentes mês a mês nos últimos 6-12 meses, para o usuário visualizar tendência de crescimento ou redução ao longo do tempo.
+Detalhamento por item recorrente individual: uma lista/tabela mostrando cada recorrência ativa com: descrição, categoria, valor mensal equivalente (normalizar frequências diferentes para "custo mensal médio", ex: uma recorrência anual de R$ 1.200 equivale a R$ 100/mês), percentual que representa do total de gastos recorrentes, e quantos meses/vezes já foi pago no histórico.
+Destaque de oportunidades de corte: identificar e destacar visualmente (ex: badge ou cor diferenciada) os itens recorrentes de maior valor individual, e opcionalmente itens que não tiveram nenhum uso/justificativa recente (ex: assinatura que talvez o usuário tenha esquecido de cancelar) — pode ser um destaque simples do tipo "Maior gasto fixo: X" e "Gastos recorrentes representam X% da sua despesa total do mês" (comparando com o total geral de despesas do DRE no mesmo período).
+Esse painel deve respeitar o modo de ocultar valores (ícone de olho) já implementado.
+
+Depois de implementar, teste o fluxo completo: criar uma nova recorrência mensal com data dentro do mês atual e confirmar que já aparece uma transação pendente gerada automaticamente; marcar essa transação como paga e confirmar que o status muda corretamente; avançar para o próximo período (ou simular) e confirmar que uma nova transação pendente é gerada sem duplicar; e verificar se o painel de análise mostra os totais, agrupamentos por categoria e evolução histórica corretamente.

@@ -16,6 +16,7 @@ import { Dashboard } from '@/pages/Dashboard';
 import { Transactions } from '@/pages/Transactions';
 import { Categories } from '@/pages/Categories';
 import { Scheduled } from '@/pages/Scheduled';
+import { ScheduledAnalysis } from '@/pages/ScheduledAnalysis';
 import { Reports } from '@/pages/Reports';
 import { Settings } from '@/pages/Settings';
 import { Cards } from '@/pages/Cards';
@@ -127,6 +128,7 @@ function AppContent() {
           <Route path="/categories" component={Categories} />
           <Route path="/cards/:id" component={CardDetail} />
           <Route path="/cards" component={Cards} />
+          <Route path="/scheduled/analise" component={ScheduledAnalysis} />
           <Route path="/scheduled" component={Scheduled} />
           <Route path="/dre" component={Dre} />
           <Route path="/orcamentos" component={Budgets} />

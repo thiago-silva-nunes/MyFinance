@@ -193,3 +193,13 @@ begin
     alter table transactions add column installment_total integer;
   end if;
 end $;
+
+-- ─── Índice único parcial: impede múltiplas transações PENDENTES por recorrência/período ──
+-- Garante no banco que não haverá duas transações com status='pending' para a mesma
+-- recorrência (scheduled_id) e o mesmo período (reference_month), mesmo sob concorrência.
+-- Execute este bloco no SQL Editor do Supabase após o schema principal.
+create unique index if not exists uq_scheduled_pending_one_per_period
+  on transactions (scheduled_id, reference_month)
+  where status = 'pending'
+    and scheduled_id is not null
+    and reference_month is not null;
