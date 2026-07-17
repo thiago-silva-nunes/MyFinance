@@ -12,23 +12,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { getIcon } from '@/components/IconMap';
 import { toast } from 'sonner';
 import { Transaction } from '@/data/mockData';
-import { CreditCard, Info, Loader2, Building2 } from 'lucide-react';
+import { CreditCard, Info, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { DRE_GROUP_OPTIONS, DRE_GROUP_LABEL } from '@/services/dataService';
 
 const transactionSchema = z.object({
-  description:   z.string().min(1, 'Descrição é obrigatória'),
-  amount:        z.coerce.number().min(0.01, 'Valor deve ser maior que zero'),
-  type:          z.enum(['income', 'expense']),
-  categoryId:    z.string().min(1, 'Categoria é obrigatória'),
-  subcategoryId: z.string().optional(),
-  date:          z.string().min(1, 'Data é obrigatória'),
-  status:        z.enum(['paid', 'pending']),
-  paymentMethod: z.string().optional(),
-  cardId:        z.string().optional(),
-  bankId:        z.string().optional(),
-  notes:         z.string().optional(),
-  purchaseType:  z.enum(['avista', 'parcelado']).default('avista'),
-  installments:  z.coerce.number().min(2).max(24).default(2),
+  description:      z.string().min(1, 'Descrição é obrigatória'),
+  amount:           z.coerce.number().min(0.01, 'Valor deve ser maior que zero'),
+  type:             z.enum(['income', 'expense']),
+  categoryId:       z.string().min(1, 'Categoria é obrigatória'),
+  subcategoryId:    z.string().optional(),
+  date:             z.string().min(1, 'Data é obrigatória'),
+  status:           z.enum(['paid', 'pending']),
+  paymentMethod:    z.string().optional(),
+  cardId:           z.string().optional(),
+  bankId:           z.string().optional(),
+  notes:            z.string().optional(),
+  purchaseType:     z.enum(['avista', 'parcelado']).default('avista'),
+  installments:     z.coerce.number().min(2).max(24).default(2),
+  dreGroupOverride: z.string().optional(),
 });
 
 interface TransactionFormProps {
@@ -53,6 +55,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
       notes: '',
       purchaseType: 'avista',
       installments: 2,
+      dreGroupOverride: '',
     },
   });
 
@@ -71,6 +74,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
           notes: transaction.notes || '',
           purchaseType: 'avista',
           installments: 2,
+          dreGroupOverride: transaction.dreGroupOverride ?? '',
         });
       } else {
         form.reset({
@@ -88,10 +92,12 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
     }
   }, [open, transaction, defaultCardId, form]);
 
-  const type             = form.watch('type');
-  const paymentMethod    = form.watch('paymentMethod');
-  const purchaseType     = form.watch('purchaseType');
+  const type               = form.watch('type');
+  const paymentMethod      = form.watch('paymentMethod');
+  const purchaseType       = form.watch('purchaseType');
   const selectedCategoryId = form.watch('categoryId');
+  const selectedSubcatId   = form.watch('subcategoryId');
+  const dreGroupOverride   = form.watch('dreGroupOverride');
 
   const isCardPayment    = type === 'expense' && paymentMethod === 'cartao_credito';
   const showBankSelector = banks.length > 0
@@ -105,11 +111,26 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
     ? subcategories.filter(s => s.categoryId === selectedCategoryId)
     : [];
 
+  // Compute inherited DRE group for the helper text / default display
+  const selectedCategory    = categories.find(c => c.id === selectedCategoryId);
+  const selectedSubcategory = subcategories.find(s => s.id === selectedSubcatId);
+  const inheritedDreGroup   =
+    selectedSubcategory?.dreGroup ??
+    selectedCategory?.dreGroup ??
+    (type === 'income' ? 'receita' : 'despesa_variavel');
+  const isDreOverriding = !!(dreGroupOverride && dreGroupOverride !== '' && dreGroupOverride !== '__inherited__');
+  const dreHelperText = isDreOverriding
+    ? 'Personalizado para este lançamento'
+    : `Herdado de ${selectedSubcategory ? `${selectedSubcategory.name} (${selectedCategory?.name ?? ''})` : (selectedCategory?.name ?? 'Categoria')}`;
+
   const onSubmit = async (data: z.infer<typeof transactionSchema>) => {
     try {
       const cardId = isCardPayment && data.cardId ? data.cardId : undefined;
       const bankId = !isCardPayment && data.bankId && data.bankId !== '' ? data.bankId : undefined;
       const subcategoryId = data.subcategoryId && data.subcategoryId !== '' ? data.subcategoryId : undefined;
+      const dreGroupOverrideVal = data.dreGroupOverride && data.dreGroupOverride !== '' && data.dreGroupOverride !== '__inherited__'
+        ? data.dreGroupOverride
+        : undefined;
       const payload: Omit<Transaction, 'id'> = {
         description: data.description, amount: data.amount, type: data.type,
         categoryId: data.categoryId,
@@ -119,6 +140,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
         cardId,
         bankId,
         notes: data.notes || undefined,
+        dreGroupOverride: dreGroupOverrideVal,
       };
 
       if (transaction) {
@@ -430,6 +452,41 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                     A edição afeta apenas esta parcela.
                   </span>
                 </div>
+              )}
+
+              {/* DRE classification override — only when a category is selected */}
+              {selectedCategoryId && (
+                <FormField control={form.control} name="dreGroupOverride" render={({ field }) => (
+                  <FormItem className="col-span-2">
+                    <FormLabel>Classificação no DRE</FormLabel>
+                    <Select
+                      onValueChange={(v) => field.onChange(v === '__inherited__' ? '' : v)}
+                      value={field.value && field.value !== '' ? field.value : '__inherited__'}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue>
+                            {isDreOverriding
+                              ? DRE_GROUP_LABEL[dreGroupOverride ?? ''] ?? dreGroupOverride
+                              : `${DRE_GROUP_LABEL[inheritedDreGroup] ?? inheritedDreGroup} (herdado)`}
+                          </SelectValue>
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="__inherited__">
+                          {DRE_GROUP_LABEL[inheritedDreGroup] ?? inheritedDreGroup} (herdado)
+                        </SelectItem>
+                        {DRE_GROUP_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className={`text-xs mt-1 ${isDreOverriding ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                      {dreHelperText}
+                    </p>
+                    <FormMessage />
+                  </FormItem>
+                )} />
               )}
 
               {/* Status */}

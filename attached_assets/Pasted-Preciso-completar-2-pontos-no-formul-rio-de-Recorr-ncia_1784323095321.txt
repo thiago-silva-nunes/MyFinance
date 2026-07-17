@@ -1,0 +1,27 @@
+Preciso completar 2 pontos no formulário de Recorrência e no formulário de Transação:
+1. FEATURE — Adicionar Subcategoria e Conta Bancária no formulário de Recorrência
+No modal "Nova Recorrência" (RecurringFormDialog.tsx ou equivalente), hoje só existe o seletor de "Categoria". Adicione:
+
+Subcategoria (opcional): select que aparece somente quando a categoria selecionada tiver subcategorias cadastradas, listando as subcategorias daquela categoria — mesmo padrão de comportamento já usado no TransactionFormDialog.tsx (aparece dinamicamente, permite "— Nenhuma —").
+Conta bancária (opcional): select com as contas cadastradas (banks), para vincular de qual conta sai/entra o valor daquela recorrência — mesmo padrão já usado no formulário de transação.
+Ao gerar a transação automaticamente a partir da recorrência (motor de geração que já implementamos), a transação gerada deve herdar subcategory_id e bank_id da recorrência, além dos campos que já herda hoje (descrição, valor, categoria, tipo).
+Ajustar a tabela scheduled_transactions para ter as colunas subcategory_id (referência a subcategories, on delete set null) e bank_id (referência a banks, on delete set null), via alter table add column if not exists.
+
+2. FEATURE — Seletor de "Categoria DRE" com pré-preenchimento inteligente, editável no momento do lançamento
+Tanto no formulário de Nova Transação quanto no de Nova Recorrência, adicione um campo "Classificação no DRE" (select com as opções: Receita, Despesa Fixa, Despesa Variável, Despesa Financeira, Dedução), com o seguinte comportamento:
+
+Esse campo deve ser pré-preenchido automaticamente com o "grupo efetivo" calculado a partir da hierarquia que já implementamos: subcategoria.dre_group ?? categoria.dre_group — ou seja, mostra por padrão o que seria herdado, considerando a categoria (e subcategoria, se selecionada) escolhidas no momento.
+O usuário pode alterar manualmente esse valor só para aquele lançamento específico, sem precisar ir mudar a configuração da categoria/subcategoria em Configurações.
+Esse valor manual, quando definido, deve ser salvo em uma nova coluna dre_group_override na tabela transactions (nullable, mesmo check constraint das outras tabelas), via alter table add column if not exists.
+Atualizar a hierarquia de resolução do "grupo efetivo" (a função getEffectiveDreGroup que já criamos) para considerar 3 níveis, nessa ordem de prioridade:
+
+transacao.dre_group_override (se definido, sempre vence)
+subcategoria.dre_group (se definido e não houver override na transação)
+categoria.dre_group (fallback final, comportamento original)
+
+
+No formulário de Recorrência, o mesmo campo deve existir e funcionar igual — o valor selecionado ali deve ser copiado para a transação gerada automaticamente (herança igual aos outros campos), mas continuando editável pelo usuário se ele quiser ajustar manualmente uma ocorrência específica depois de gerada.
+Ao editar uma transação já existente, o campo "Classificação no DRE" deve mostrar o valor atualmente efetivo daquela transação (override, se houver; senão o herdado), permitindo o usuário mudar novamente a qualquer momento.
+Adicionar um pequeno texto auxiliar abaixo do campo, tipo "Herdado de [Categoria/Subcategoria]" quando não houver override, e "Personalizado para este lançamento" quando houver, para deixar claro visualmente a origem do valor.
+
+Depois de implementar, teste o fluxo completo: criar uma recorrência selecionando categoria "Moradia", subcategoria "Luz" e conta bancária, confirmando que a transação gerada automaticamente herda tudo corretamente; depois criar uma transação avulsa na categoria "Alimentação", ver o campo DRE pré-preenchido com o valor herdado, alterar manualmente para outra classificação, salvar, e confirmar no DRE que aquele lançamento específico aparece no grupo escolhido manualmente — sem afetar as demais transações da mesma categoria/subcategoria.

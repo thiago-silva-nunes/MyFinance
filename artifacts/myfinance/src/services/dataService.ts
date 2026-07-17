@@ -23,6 +23,38 @@ function extractErrorMessage(err: unknown): string {
 
 export { extractErrorMessage };
 
+// ─── DRE group resolution (3-level hierarchy) ────────────────────────────────
+
+/**
+ * Resolves the effective DRE classification for a transaction or recurring item.
+ * Priority: transaction.dreGroupOverride → subcategory.dreGroup → category.dreGroup → type default
+ */
+export function getEffectiveDreGroup(
+  item: { dreGroupOverride?: string },
+  category?: { dreGroup?: string; type?: string },
+  subcategory?: { dreGroup?: string },
+): string {
+  if (item.dreGroupOverride) return item.dreGroupOverride;
+  if (subcategory?.dreGroup) return subcategory.dreGroup;
+  return category?.dreGroup ?? (category?.type === 'income' ? 'receita' : 'despesa_variavel');
+}
+
+export const DRE_GROUP_OPTIONS = [
+  { value: 'receita',            label: 'Receita' },
+  { value: 'despesa_fixa',       label: 'Despesa Fixa' },
+  { value: 'despesa_variavel',   label: 'Despesa Variável' },
+  { value: 'despesa_financeira', label: 'Despesa Financeira' },
+  { value: 'deducao',            label: 'Dedução' },
+] as const;
+
+export const DRE_GROUP_LABEL: Record<string, string> = {
+  receita:            'Receita',
+  despesa_fixa:       'Despesa Fixa',
+  despesa_variavel:   'Despesa Variável',
+  despesa_financeira: 'Despesa Financeira',
+  deducao:            'Dedução',
+};
+
 // ─── Invoice helpers ──────────────────────────────────────────────────────────
 
 function getTodayStr(): string {
@@ -249,7 +281,7 @@ export const dataService = {
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('subcategories')
-      .select('id, category_id, name')
+      .select('id, category_id, name, dre_group')
       .eq('user_id', user.id)
       .order('created_at');
     if (error) throw error;
@@ -257,6 +289,8 @@ export const dataService = {
       id: row.id,
       categoryId: row.category_id,
       name: row.name,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dreGroup: (row as any).dre_group ?? undefined,
     }));
   },
 
@@ -265,25 +299,28 @@ export const dataService = {
     if (!user) throw new Error('Not authenticated');
     const { data, error } = await supabase
       .from('subcategories')
-      .insert({ user_id: user.id, category_id: sub.categoryId, name: sub.name })
-      .select('id, category_id, name')
+      .insert({ user_id: user.id, category_id: sub.categoryId, name: sub.name, dre_group: sub.dreGroup ?? null })
+      .select('id, category_id, name, dre_group')
       .single();
     if (error) throw error;
-    return { id: data.id, categoryId: data.category_id, name: data.name };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return { id: data.id, categoryId: data.category_id, name: data.name, dreGroup: (data as any).dre_group ?? undefined };
   },
 
   updateSubcategory: async (id: string, sub: Partial<Omit<Subcategory, 'id'>>): Promise<Subcategory> => {
     const updates: Record<string, unknown> = {};
     if (sub.name !== undefined) updates.name = sub.name;
     if (sub.categoryId !== undefined) updates.category_id = sub.categoryId;
+    if (sub.dreGroup !== undefined) updates.dre_group = sub.dreGroup ?? null;
     const { data, error } = await supabase
       .from('subcategories')
       .update(updates)
       .eq('id', id)
-      .select('id, category_id, name')
+      .select('id, category_id, name, dre_group')
       .single();
     if (error) throw error;
-    return { id: data.id, categoryId: data.category_id, name: data.name };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return { id: data.id, categoryId: data.category_id, name: data.name, dreGroup: (data as any).dre_group ?? undefined };
   },
 
   deleteSubcategory: async (id: string): Promise<void> => {
@@ -297,7 +334,7 @@ export const dataService = {
   getTransactions: async (): Promise<Transaction[]> => {
     const { data, error } = await supabase
       .from('transactions')
-      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, installment_group_id, installment_number, installment_total')
+      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, installment_group_id, installment_number, installment_total, dre_group_override')
       .order('date', { ascending: false });
     if (error) throw error;
     return (data ?? []).map((row) => ({
@@ -322,6 +359,8 @@ export const dataService = {
       installmentNumber: (row as any).installment_number ?? undefined,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       installmentTotal: (row as any).installment_total ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dreGroupOverride: (row as any).dre_group_override ?? undefined,
     }));
   },
 
@@ -355,8 +394,9 @@ export const dataService = {
         card_id: tx.cardId ?? null,
         bank_id: tx.bankId ?? null,
         reference_month: referenceMonth,
+        dre_group_override: tx.dreGroupOverride ?? null,
       })
-      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, installment_group_id, installment_number, installment_total')
+      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, installment_group_id, installment_number, installment_total, dre_group_override')
       .single();
     if (error) throw error;
 
@@ -391,6 +431,8 @@ export const dataService = {
       installmentNumber: (data as any).installment_number ?? undefined,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       installmentTotal: (data as any).installment_total ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dreGroupOverride: (data as any).dre_group_override ?? undefined,
     };
   },
 
@@ -470,6 +512,7 @@ export const dataService = {
     if (tx.notes !== undefined) updates.notes = tx.notes;
     if (tx.scheduledId !== undefined) updates.scheduled_id = tx.scheduledId;
     if (tx.bankId !== undefined) updates.bank_id = tx.bankId ?? null;
+    if (tx.dreGroupOverride !== undefined) updates.dre_group_override = tx.dreGroupOverride ?? null;
 
     // Recalculate referenceMonth if date or cardId changed
     const newDate = tx.date ? tx.date.split('T')[0] : existing?.date;
@@ -497,7 +540,7 @@ export const dataService = {
       .from('transactions')
       .update(updates)
       .eq('id', id)
-      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, installment_group_id, installment_number, installment_total')
+      .select('id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, installment_group_id, installment_number, installment_total, dre_group_override')
       .single();
     if (error) throw error;
 
@@ -534,6 +577,8 @@ export const dataService = {
       installmentNumber: (data as any).installment_number ?? undefined,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       installmentTotal: (data as any).installment_total ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dreGroupOverride: (data as any).dre_group_override ?? undefined,
     };
   },
 
@@ -608,14 +653,20 @@ export const dataService = {
   getScheduledTransactions: async (): Promise<ScheduledTransaction[]> => {
     const { data, error } = await supabase
       .from('scheduled_transactions')
-      .select('id, description, amount, type, category_id, start_date, end_date, frequency, active')
+      .select('id, description, amount, type, category_id, subcategory_id, bank_id, start_date, end_date, frequency, active, dre_group_override')
       .order('created_at');
     if (error) throw error;
     return (data ?? []).map((row) => ({
       id: row.id, description: row.description, amount: Number(row.amount),
       type: row.type as 'income' | 'expense', categoryId: row.category_id,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      subcategoryId: (row as any).subcategory_id ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      bankId: (row as any).bank_id ?? undefined,
       startDate: row.start_date, endDate: row.end_date ?? undefined,
       frequency: row.frequency as ScheduledTransaction['frequency'], active: row.active,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dreGroupOverride: (row as any).dre_group_override ?? undefined,
     }));
   },
 
@@ -626,18 +677,28 @@ export const dataService = {
       .from('scheduled_transactions')
       .insert({
         user_id: user.id, description: st.description, amount: st.amount, type: st.type,
-        category_id: st.categoryId, start_date: st.startDate.split('T')[0],
+        category_id: st.categoryId,
+        subcategory_id: st.subcategoryId ?? null,
+        bank_id: st.bankId ?? null,
+        start_date: st.startDate.split('T')[0],
         end_date: st.endDate ? st.endDate.split('T')[0] : null,
         frequency: st.frequency, active: st.active,
+        dre_group_override: st.dreGroupOverride ?? null,
       })
-      .select('id, description, amount, type, category_id, start_date, end_date, frequency, active')
+      .select('id, description, amount, type, category_id, subcategory_id, bank_id, start_date, end_date, frequency, active, dre_group_override')
       .single();
     if (error) throw error;
     return {
       id: data.id, description: data.description, amount: Number(data.amount),
       type: data.type as 'income' | 'expense', categoryId: data.category_id,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      subcategoryId: (data as any).subcategory_id ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      bankId: (data as any).bank_id ?? undefined,
       startDate: data.start_date, endDate: data.end_date ?? undefined,
       frequency: data.frequency as ScheduledTransaction['frequency'], active: data.active,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dreGroupOverride: (data as any).dre_group_override ?? undefined,
     };
   },
 
@@ -647,23 +708,32 @@ export const dataService = {
     if (st.amount !== undefined) updates.amount = st.amount;
     if (st.type !== undefined) updates.type = st.type;
     if (st.categoryId !== undefined) updates.category_id = st.categoryId;
+    if (st.subcategoryId !== undefined) updates.subcategory_id = st.subcategoryId ?? null;
+    if (st.bankId !== undefined) updates.bank_id = st.bankId ?? null;
     if (st.startDate !== undefined) updates.start_date = st.startDate.split('T')[0];
     if (st.endDate !== undefined) updates.end_date = st.endDate.split('T')[0];
     if (st.frequency !== undefined) updates.frequency = st.frequency;
     if (st.active !== undefined) updates.active = st.active;
+    if (st.dreGroupOverride !== undefined) updates.dre_group_override = st.dreGroupOverride ?? null;
 
     const { data, error } = await supabase
       .from('scheduled_transactions')
       .update(updates)
       .eq('id', id)
-      .select('id, description, amount, type, category_id, start_date, end_date, frequency, active')
+      .select('id, description, amount, type, category_id, subcategory_id, bank_id, start_date, end_date, frequency, active, dre_group_override')
       .single();
     if (error) throw error;
     return {
       id: data.id, description: data.description, amount: Number(data.amount),
       type: data.type as 'income' | 'expense', categoryId: data.category_id,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      subcategoryId: (data as any).subcategory_id ?? undefined,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      bankId: (data as any).bank_id ?? undefined,
       startDate: data.start_date, endDate: data.end_date ?? undefined,
       frequency: data.frequency as ScheduledTransaction['frequency'], active: data.active,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      dreGroupOverride: (data as any).dre_group_override ?? undefined,
     };
   },
 

@@ -142,7 +142,9 @@ function buildDRE(
   for (const tx of inRange) {
     const cat = catMap.get(tx.categoryId);
     if (!cat) continue;
-    const groupId = cat.dreGroup ?? (cat.type === 'income' ? 'receita' : 'despesa_variavel');
+    // 3-level DRE hierarchy: transaction override → subcategory dreGroup → category dreGroup
+    const sub = tx.subcategoryId ? subMap.get(tx.subcategoryId) : undefined;
+    const groupId = tx.dreGroupOverride ?? sub?.dreGroup ?? cat.dreGroup ?? (cat.type === 'income' ? 'receita' : 'despesa_variavel');
 
     if (!grouped[groupId]) grouped[groupId] = {};
     if (!grouped[groupId][cat.id]) grouped[groupId][cat.id] = {};

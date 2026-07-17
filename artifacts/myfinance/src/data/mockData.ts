@@ -11,6 +11,7 @@ export interface Subcategory {
   id: string;
   categoryId: string;
   name: string;
+  dreGroup?: string; // optional per-subcategory DRE group override
 }
 
 export interface Transaction {
@@ -31,6 +32,7 @@ export interface Transaction {
   installmentGroupId?: string; // UUID shared by all installments of the same purchase
   installmentNumber?: number;  // 1-indexed position (e.g. 2 in a 3x purchase)
   installmentTotal?: number;   // total installment count (e.g. 3 in a 3x purchase)
+  dreGroupOverride?: string;   // per-transaction DRE classification override (nullable)
 }
 
 export interface ScheduledTransaction {
@@ -39,10 +41,13 @@ export interface ScheduledTransaction {
   amount: number;
   type: 'income' | 'expense';
   categoryId: string;
+  subcategoryId?: string;  // optional — inherited by auto-generated transactions
+  bankId?: string;         // optional — inherited by auto-generated transactions
   startDate: string;
   endDate?: string;
   frequency: 'once' | 'daily' | 'weekly' | 'monthly' | 'yearly';
   active: boolean;
+  dreGroupOverride?: string; // optional DRE classification, inherited by auto-generated transactions
 }
 
 export interface CreditCard {

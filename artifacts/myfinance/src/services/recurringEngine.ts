@@ -149,13 +149,16 @@ export async function generatePendingIfNeeded(
       amount: scheduled.amount,
       type: scheduled.type,
       category_id: scheduled.categoryId,
+      subcategory_id: scheduled.subcategoryId ?? null,
+      bank_id: scheduled.bankId ?? null,
       date: txDate,
       status: 'pending',
       scheduled_id: scheduled.id,
       reference_month: targetRefMonth,
+      dre_group_override: scheduled.dreGroupOverride ?? null,
     })
     .select(
-      'id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month',
+      'id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, dre_group_override',
     )
     .single();
 
@@ -174,10 +177,12 @@ export async function generatePendingIfNeeded(
     type: data.type as 'income' | 'expense',
     categoryId: data.category_id,
     subcategoryId: data.subcategory_id ?? undefined,
+    bankId: (data as Record<string, unknown>).bank_id as string | undefined ?? undefined,
     date: data.date,
     status: 'pending',
     scheduledId: data.scheduled_id,
     referenceMonth: data.reference_month ?? undefined,
+    dreGroupOverride: (data as Record<string, unknown>).dre_group_override as string | undefined ?? undefined,
   };
 }
 
@@ -232,13 +237,16 @@ export async function regeneratePendingForScheduled(
       amount: scheduled.amount,
       type: scheduled.type,
       category_id: scheduled.categoryId,
+      subcategory_id: scheduled.subcategoryId ?? null,
+      bank_id: scheduled.bankId ?? null,
       date: txDate,
       status: 'pending',
       scheduled_id: scheduled.id,
       reference_month: targetRefMonth,
+      dre_group_override: scheduled.dreGroupOverride ?? null,
     })
     .select(
-      'id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month',
+      'id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, dre_group_override',
     )
     .single();
 
@@ -257,10 +265,12 @@ export async function regeneratePendingForScheduled(
     type: data.type as 'income' | 'expense',
     categoryId: data.category_id,
     subcategoryId: data.subcategory_id ?? undefined,
+    bankId: (data as Record<string, unknown>).bank_id as string | undefined ?? undefined,
     date: data.date,
     status: 'pending',
     scheduledId: data.scheduled_id,
     referenceMonth: data.reference_month ?? undefined,
+    dreGroupOverride: (data as Record<string, unknown>).dre_group_override as string | undefined ?? undefined,
   };
 }
 

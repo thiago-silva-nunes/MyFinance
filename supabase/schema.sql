@@ -194,6 +194,55 @@ begin
   end if;
 end $;
 
+-- ─── Colunas adicionais em subcategories ─────────────────────────────────────
+do $ begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_name = 'subcategories' and column_name = 'dre_group'
+  ) then
+    alter table subcategories add column dre_group text
+      check (dre_group in ('receita', 'despesa_fixa', 'despesa_variavel', 'despesa_financeira', 'deducao'));
+  end if;
+end $;
+
+-- ─── Colunas adicionais em transactions ───────────────────────────────────────
+do $ begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_name = 'transactions' and column_name = 'dre_group_override'
+  ) then
+    alter table transactions add column dre_group_override text
+      check (dre_group_override in ('receita', 'despesa_fixa', 'despesa_variavel', 'despesa_financeira', 'deducao'));
+  end if;
+end $;
+
+-- ─── Colunas adicionais em scheduled_transactions ────────────────────────────
+do $ begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_name = 'scheduled_transactions' and column_name = 'subcategory_id'
+  ) then
+    alter table scheduled_transactions
+      add column subcategory_id uuid references subcategories(id) on delete set null;
+  end if;
+
+  if not exists (
+    select 1 from information_schema.columns
+    where table_name = 'scheduled_transactions' and column_name = 'bank_id'
+  ) then
+    alter table scheduled_transactions
+      add column bank_id uuid references banks(id) on delete set null;
+  end if;
+
+  if not exists (
+    select 1 from information_schema.columns
+    where table_name = 'scheduled_transactions' and column_name = 'dre_group_override'
+  ) then
+    alter table scheduled_transactions add column dre_group_override text
+      check (dre_group_override in ('receita', 'despesa_fixa', 'despesa_variavel', 'despesa_financeira', 'deducao'));
+  end if;
+end $;
+
 -- ─── Índice único parcial: impede múltiplas transações PENDENTES por recorrência/período ──
 -- Garante no banco que não haverá duas transações com status='pending' para a mesma
 -- recorrência (scheduled_id) e o mesmo período (reference_month), mesmo sob concorrência.
