@@ -13,7 +13,7 @@ import { Switch } from '@/components/ui/switch';
 import { getIcon } from '@/components/IconMap';
 import { toast } from 'sonner';
 import { Transaction, ScheduledTransaction, Subcategory, BankAccount } from '@/data/mockData';
-import { CreditCard, Info, Loader2, Repeat2 } from 'lucide-react';
+import { CreditCard, Info, Loader2, Repeat2, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DRE_GROUP_OPTIONS, DRE_GROUP_LABEL } from '@/services/dataService';
 
@@ -134,6 +134,8 @@ interface TransactionFormProps {
   /** When set, opens the form in recurring-edit mode (toggle locked ON). */
   editingScheduled?: ScheduledTransaction | null;
   defaultCardId?: string;
+  /** When set, pre-fills the form with these values but saves as a NEW transaction (duplicate mode). */
+  duplicateFrom?: Transaction | null;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -143,6 +145,7 @@ export const TransactionFormDialog = ({
   transaction,
   editingScheduled,
   defaultCardId,
+  duplicateFrom,
 }: TransactionFormProps) => {
   const {
     categories,
@@ -160,8 +163,8 @@ export const TransactionFormDialog = ({
   const [isRecurring, setIsRecurring] = React.useState(!!editingScheduled);
   /** Toggle locked when editing an existing scheduled transaction. */
   const isRecurringLocked = !!editingScheduled;
-  /** Toggle is hidden when editing an existing regular transaction. */
-  const showRecurringToggle = !transaction;
+  /** Toggle is hidden when editing an existing regular transaction or duplicating. */
+  const showRecurringToggle = !transaction && !duplicateFrom;
 
   // Sync when editingScheduled changes externally
   React.useEffect(() => {
@@ -244,6 +247,28 @@ export const TransactionFormDialog = ({
         startDate: new Date().toISOString().split('T')[0],
         endDate: '', frequency: 'monthly', active: true,
       });
+    } else if (duplicateFrom) {
+      // Duplicate mode: same data as source, but date = today, status = 'paid', no installment group
+      setIsRecurring(false);
+      const isCard = !!duplicateFrom.cardId;
+      form.reset({
+        description:      duplicateFrom.description,
+        amount:           duplicateFrom.amount,
+        type:             duplicateFrom.type,
+        categoryId:       duplicateFrom.categoryId,
+        subcategoryId:    duplicateFrom.subcategoryId ?? '',
+        dreGroupOverride: duplicateFrom.dreGroupOverride ?? '',
+        notes:            duplicateFrom.notes || '',
+        date:             new Date().toISOString().split('T')[0], // today
+        status:           'paid',                                 // reset to default
+        paymentMethod:    isCard ? 'cartao_credito' : (duplicateFrom.paymentMethod || 'dinheiro'),
+        cardId:           duplicateFrom.cardId ?? '',
+        bankId:           duplicateFrom.bankId ?? '',
+        purchaseType: 'avista', installments: 2,                  // no installments
+        // Recurring defaults (unused in this mode)
+        startDate: new Date().toISOString().split('T')[0],
+        endDate: '', frequency: 'monthly', active: true,
+      });
     } else {
       // New transaction / new recurring
       setIsRecurring(false);
@@ -259,7 +284,7 @@ export const TransactionFormDialog = ({
         endDate: '', frequency: 'monthly', active: true,
       });
     }
-  }, [open, transaction, editingScheduled, defaultCardId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, transaction, editingScheduled, duplicateFrom, defaultCardId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Watched values ────────────────────────────────────────────────────────
   const type               = form.watch('type');
@@ -305,9 +330,11 @@ export const TransactionFormDialog = ({
     ? 'Editar Recorrência'
     : transaction
       ? 'Editar Transação'
-      : isRecurring
-        ? 'Nova Recorrência'
-        : 'Nova Transação';
+      : duplicateFrom
+        ? 'Duplicar Transação'
+        : isRecurring
+          ? 'Nova Recorrência'
+          : 'Nova Transação';
 
   // ── Submit ────────────────────────────────────────────────────────────────
   const onSubmit = async (data: FormValues) => {

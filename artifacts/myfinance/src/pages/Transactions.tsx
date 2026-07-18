@@ -13,7 +13,7 @@ import { getIcon } from '@/components/IconMap';
 import { TransactionFormDialog } from '@/components/TransactionFormDialog';
 import { TransferFormDialog } from '@/components/TransferFormDialog';
 import { Transaction, Transfer } from '@/data/mockData';
-import { Search, Plus, Edit2, Trash2, CheckCircle, Layers, Loader2, ArrowRightLeft } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, CheckCircle, Layers, Loader2, ArrowRightLeft, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface InstallmentDeleteTarget {
@@ -45,7 +45,8 @@ export const Transactions = () => {
   const [bankFilter, setBankFilter]       = useState<string>('all');
 
   const [isFormOpen, setIsFormOpen]               = useState(false);
-  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [editingTransaction, setEditingTransaction]   = useState<Transaction | null>(null);
+  const [duplicatingTransaction, setDuplicatingTransaction] = useState<Transaction | null>(null);
   const [isTransferFormOpen, setIsTransferFormOpen]   = useState(false);
   const [editingTransfer, setEditingTransfer]         = useState<Transfer | null>(null);
   const [installmentDeleteTarget, setInstallmentDeleteTarget] = useState<InstallmentDeleteTarget | null>(null);
@@ -129,7 +130,8 @@ export const Transactions = () => {
     finally { setIsBulkDeleting(false); }
   };
 
-  const handleEdit = (t: Transaction) => { setEditingTransaction(t); setIsFormOpen(true); };
+  const handleEdit = (t: Transaction) => { setEditingTransaction(t); setDuplicatingTransaction(null); setIsFormOpen(true); };
+  const handleDuplicate = (t: Transaction) => { setDuplicatingTransaction(t); setEditingTransaction(null); setIsFormOpen(true); };
 
   const handleDelete = (t: Transaction) => {
     if (t.installmentGroupId) {
@@ -158,7 +160,7 @@ export const Transactions = () => {
     toast.success(`Marcado como ${newStatus === 'paid' ? 'pago' : 'pendente'}`);
   };
 
-  const openNewForm = () => { setEditingTransaction(null); setIsFormOpen(true); };
+  const openNewForm = () => { setEditingTransaction(null); setDuplicatingTransaction(null); setIsFormOpen(true); };
   const openNewTransfer = () => { setEditingTransfer(null); setIsTransferFormOpen(true); };
 
   return (
@@ -249,6 +251,16 @@ export const Transactions = () => {
               <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>
                 Limpar seleção
               </Button>
+              {selectedIds.size === 1 && (() => {
+                const singleId = [...selectedIds][0];
+                const singleTx = filteredTransactions.find(t => t.id === singleId);
+                return singleTx ? (
+                  <Button variant="outline" size="sm" onClick={() => handleDuplicate(singleTx)}>
+                    <Copy className="w-3.5 h-3.5 mr-1.5" />
+                    Duplicar selecionada
+                  </Button>
+                ) : null;
+              })()}
               <Button variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
                 <Trash2 className="w-3.5 h-3.5 mr-1.5" />
                 Excluir selecionadas
@@ -396,6 +408,9 @@ export const Transactions = () => {
                           <Button variant="ghost" size="icon" onClick={() => toggleStatus(t)} title="Alternar status">
                             <CheckCircle className={`w-4 h-4 ${t.status === 'paid' ? 'text-success' : 'text-muted-foreground'}`} />
                           </Button>
+                          <Button variant="ghost" size="icon" onClick={() => handleDuplicate(t)} title="Duplicar transação">
+                            <Copy className="w-4 h-4 text-muted-foreground" />
+                          </Button>
                           <Button variant="ghost" size="icon" onClick={() => handleEdit(t)}>
                             <Edit2 className="w-4 h-4 text-muted-foreground" />
                           </Button>
@@ -426,8 +441,12 @@ export const Transactions = () => {
       {/* Transaction form */}
       <TransactionFormDialog
         open={isFormOpen}
-        onOpenChange={setIsFormOpen}
+        onOpenChange={(open) => {
+          setIsFormOpen(open);
+          if (!open) { setEditingTransaction(null); setDuplicatingTransaction(null); }
+        }}
         transaction={editingTransaction}
+        duplicateFrom={duplicatingTransaction}
       />
 
       {/* Transfer form */}

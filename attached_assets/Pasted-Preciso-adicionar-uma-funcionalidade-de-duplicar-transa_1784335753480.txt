@@ -1,0 +1,22 @@
+Preciso adicionar uma funcionalidade de "duplicar transação" no MyFinance, para facilitar lançar transações do dia a dia que se repetem (ex: Uber, café), sem quebrar nada existente.
+
+1. BOTÃO DE DUPLICAR NA TABELA DE TRANSAÇÕES
+- Em src/pages/Transactions.tsx, adicione um ícone "Duplicar" (use o ícone Copy do lucide-react) na coluna de Ações de cada linha de transação, ao lado dos botões de Editar e Excluir (não aplique a linhas de Transferência por enquanto).
+- Ao clicar, deve abrir o TransactionFormDialog já preenchido com os mesmos dados da transação clicada (descrição, valor, categoria, subcategoria, forma de pagamento, cartão ou conta bancária, notas, classificação DRE), MAS:
+  - A data deve vir preenchida com a data de hoje (não a data da transação original).
+  - O status deve resetar para o padrão (ex: "Pago"), não herdar o status da original.
+  - Ao salvar, deve criar uma transação NOVA (chamar addTransaction), nunca atualizar a original.
+  - Se a transação original for uma parcela de compra parcelada (installmentGroupId preenchido), a duplicata deve virar uma transação avulsa nova, SEM herdar installmentGroupId/installmentNumber/installmentTotal (ou seja, não pode parecer parte do parcelamento antigo).
+  - O título do dialog nesse modo deve ser "Duplicar Transação" (diferente de "Nova Transação" e "Editar Transação").
+
+2. AJUSTAR TransactionFormDialog PARA SUPORTAR ESSE MODO
+- Adicione uma nova prop opcional, por exemplo `duplicateFrom?: Transaction | null`, distinta da prop `transaction` (que já é usada para edição).
+- Quando `duplicateFrom` for passado: pré-preencha o formulário com os valores dela (exceto id, date que vira hoje, status que vira o padrão, e campos de parcelamento zerados), mas trate o submit como criação nova (mesma lógica de quando não há `transaction`).
+- Garanta que abrir para editar (`transaction`) e abrir para duplicar (`duplicateFrom`) não conflitem — só um dos dois deve estar ativo por vez.
+
+3. (Opcional, mas desejável) DUPLICAR VIA SELEÇÃO
+- Na barra de ações em massa que já existe em Transactions.tsx (aparece quando há itens selecionados via checkbox), adicione um botão "Duplicar selecionada" que só fica habilitado/visível quando exatamente 1 transação estiver marcada, usando o mesmo fluxo do item 1 e 2 acima.
+
+IMPORTANTE:
+- Não altere a lógica de edição existente nem o fluxo de parcelamento/faturas de cartão.
+- Não crie duplicação automática sem revisão
