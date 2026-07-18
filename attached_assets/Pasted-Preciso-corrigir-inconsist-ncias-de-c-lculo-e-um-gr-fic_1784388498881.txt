@@ -1,0 +1,24 @@
+Preciso corrigir inconsistências de cálculo e um gráfico quebrado no MyFinance, encontradas comparando Dashboard, DRE e Relatórios lado a lado no mesmo período.
+
+1. PADRONIZAR O QUE CONTA COMO "RECEITA/DESPESA DO MÊS"
+- Hoje os cards de resumo no topo do Dashboard (Resultado do Mês, Receitas, Despesas) somam apenas transações com status "Pago", enquanto o mini-card "DRE — Este mês" (na mesma tela) e a página DRE completa somam Pago + Pendente. Isso faz a mesma tela mostrar números incompatíveis sem explicação.
+- Escolha e implemente UMA das duas opções (posso decidir depois de ver, mas comece pela opção A, que é mais transparente):
+  A) Deixe os cards de topo do Dashboard SEMPRE consistentes com o DRE (somando Pago + Pendente), e adicione um texto pequeno abaixo de cada card indicando a base, ex: "inclui pendentes". Adicione também uma alternância (toggle) "Somente pagos" para quem quiser ver só o que já foi de fato pago/recebido.
+  B) Mantenha os cards de topo do Dashboard somando só "Pago" (visão de caixa realizada), mas ajuste o mini-card DRE do Dashboard para também somar só "Pago" nesse resumo rápido, deixando claro na página DRE completa (que already mostra tudo) que ali é "Pago + Pendente" com uma legenda visível tipo "Inclui lançamentos pendentes".
+- Aplique a mesma lógica de forma consistente na página de Orçamentos, se ela também misturar bases diferentes.
+
+2. CORRIGIR O RÓTULO/CÁLCULO DE "RECEITA LÍQUIDA" NO MINI-CARD DRE DO DASHBOARD
+- No componente do Dashboard que exibe o resumo "DRE — Este mês", o campo "Receita Líquida" está mostrando o valor de Receita Bruta (sem descontar Deduções). Corrija para subtrair as Deduções do mesmo jeito que a página DRE completa faz, garantindo que o valor exibido no Dashboard seja idêntico ao "Receita Líquida" mostrado na página /dre para o mesmo período.
+- Adicione um teste manual: comparar os 4 números do mini-card do Dashboard (Receita Líquida, Total Despesas, Resultado, Margem líquida) com os da página DRE completa no mesmo período — devem bater exatamente.
+
+3. CORRIGIR O GRÁFICO "EVOLUÇÃO DO SALDO" EM RELATÓRIOS (src/pages/Reports.tsx)
+- Investigue por que o eixo Y está formatando os valores de forma estranha (aparecendo como "0.371k", "0.372k" etc., decrescendo de cima para baixo) — provavelmente um formatter de milhar (Intl.NumberFormat ou notação compacta) sendo aplicado incorretamente, ou um prefixo "R$1" sendo cortado. Corrija para exibir os valores em Reais formatados normalmente (ex: "R$ 1.371,00"), em ordem CRESCENTE de baixo para cima no eixo.
+- O gráfico está mostrando apenas 1 ponto de dados no período selecionado. Corrija a agregação para plotar a evolução do saldo total (soma de todas as contas bancárias) DIA A DIA ao longo do período selecionado, não apenas um ponto por mês — isso é o que dá sentido a um gráfico de "evolução".
+
+4. FORMATO DE DATA NO FILTRO DE PERÍODO DO DASHBOARD
+- O texto ao lado do seletor "Período" no Dashboard mostra as datas em formato ISO cru (ex: "2026-07-01 → 2026-07-31"). Formate para o padrão brasileiro (ex: "01/07/2026 → 31/07/2026"), usando o mesmo helper de formatação de data (formatShortDate ou o date-fns com locale ptBR) já usado/criado em outras partes do app.
+
+IMPORTANTE:
+- Não altere a lógica de cálculo do DRE completo (/dre) nem de Orçamentos além do que foi pedido no item 1.
+- Depois de corrigir, confirme manualmente que os números do Dashboard, DRE e Orçamentos fazem sentido entre si para o mesmo período.
+- Rode pnpm run typecheck ao final e liste os arquivos alterados.

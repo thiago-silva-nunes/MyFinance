@@ -10,11 +10,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { getIcon } from '@/components/IconMap';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts';
-import { ArrowDown, ArrowUp, TrendingUp as TrendingBalance, Bell, Plus, CreditCard, AlertTriangle, TrendingUp, TrendingDown, CalendarRange, Target, Building2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, TrendingUp as TrendingBalance, Bell, Plus, CreditCard, AlertTriangle, TrendingUp, TrendingDown, CalendarRange, Target, Building2, SlidersHorizontal } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { TransactionFormDialog } from '@/components/TransactionFormDialog';
+import { BalanceAdjustDialog } from '@/components/BalanceAdjustDialog';
 import { Link } from 'wouter';
 import { cn } from '@/lib/utils';
+import { BankAccount } from '@/data/mockData';
 
 // ─── Period helpers ────────────────────────────────────────────────────────────
 
@@ -93,6 +95,8 @@ export const Dashboard = () => {
   const [isTransactionFormOpen, setIsTransactionFormOpen] = React.useState(false);
   const [period, setPeriod] = useState<DashPeriod>('current_month');
   const [customMonth, setCustomMonth] = useState('');
+  const [adjustBank, setAdjustBank] = useState<BankAccount | null>(null);
+  const [adjustOpen, setAdjustOpen] = useState(false);
 
   const mask = (amount: number) => hideValues ? 'R$ ••••••' : formatCurrency(amount);
 
@@ -495,7 +499,7 @@ export const Dashboard = () => {
                 const balance = bankBalances[bank.id] ?? bank.initialBalance;
                 const Icon = getIcon(bank.icon);
                 return (
-                  <div key={bank.id} className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 transition-colors">
+                  <div key={bank.id} className="group flex items-center gap-3 p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 transition-colors">
                     <div
                       className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
                       style={{ backgroundColor: `${bank.color}22`, color: bank.color }}
@@ -509,6 +513,15 @@ export const Dashboard = () => {
                     <p className={`text-sm font-semibold shrink-0 ${balance >= 0 ? 'text-success' : 'text-destructive'}`}>
                       {mask(balance)}
                     </p>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Ajustar saldo"
+                      onClick={() => { setAdjustBank(bank); setAdjustOpen(true); }}
+                    >
+                      <SlidersHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
+                    </Button>
                   </div>
                 );
               })}
@@ -644,6 +657,12 @@ export const Dashboard = () => {
       </div>
 
       <TransactionFormDialog open={isTransactionFormOpen} onOpenChange={setIsTransactionFormOpen} />
+      <BalanceAdjustDialog
+        open={adjustOpen}
+        onOpenChange={setAdjustOpen}
+        bank={adjustBank}
+        currentBalance={adjustBank ? (bankBalances[adjustBank.id] ?? adjustBank.initialBalance) : 0}
+      />
     </div>
   );
 };

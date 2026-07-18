@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Moon, Sun, DollarSign, Database, LogOut, Loader2, Cloud, Bell, BellOff, BellRing, Plus, Edit2, Trash2, Building2, TrendingUp, TrendingDown } from 'lucide-react';
+import { Moon, Sun, DollarSign, Database, LogOut, Loader2, Cloud, Bell, BellOff, BellRing, Plus, Edit2, Trash2, Building2, TrendingUp, TrendingDown, SlidersHorizontal } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { toast } from 'sonner';
 import {
@@ -18,6 +18,7 @@ import {
 import { Categories } from '@/pages/Categories';
 import { Cards } from '@/pages/Cards';
 import { BankFormDialog } from '@/components/BankFormDialog';
+import { BalanceAdjustDialog } from '@/components/BalanceAdjustDialog';
 import { BankAccount } from '@/data/mockData';
 import { getIcon } from '@/components/IconMap';
 
@@ -49,8 +50,11 @@ function BanksPanel() {
     }
     return map;
   }, [banks, transactions, transfers]);
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<BankAccount | null>(null);
+  const [adjustBank, setAdjustBank] = useState<BankAccount | null>(null);
+  const [adjustOpen, setAdjustOpen] = useState(false);
 
   const handleDelete = async (bank: BankAccount) => {
     if (!confirm(`Excluir a conta "${bank.name}"? As transações vinculadas a ela continuarão existindo.`)) return;
@@ -64,6 +68,7 @@ function BanksPanel() {
 
   const openNew = () => { setEditing(null); setDialogOpen(true); };
   const openEdit = (b: BankAccount) => { setEditing(b); setDialogOpen(true); };
+  const openAdjust = (b: BankAccount) => { setAdjustBank(b); setAdjustOpen(true); };
 
   return (
     <div className="space-y-4">
@@ -120,6 +125,15 @@ function BanksPanel() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        title="Ajustar saldo"
+                        onClick={() => openAdjust(bank)}
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(bank)}>
                         <Edit2 className="w-3.5 h-3.5 text-muted-foreground" />
                       </Button>
@@ -136,6 +150,12 @@ function BanksPanel() {
       )}
 
       <BankFormDialog open={dialogOpen} onOpenChange={setDialogOpen} bank={editing} />
+      <BalanceAdjustDialog
+        open={adjustOpen}
+        onOpenChange={setAdjustOpen}
+        bank={adjustBank}
+        currentBalance={adjustBank ? (bankBalances[adjustBank.id] ?? adjustBank.initialBalance) : 0}
+      />
     </div>
   );
 }
