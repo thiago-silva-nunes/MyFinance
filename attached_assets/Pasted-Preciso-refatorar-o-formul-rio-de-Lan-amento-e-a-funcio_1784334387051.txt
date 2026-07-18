@@ -1,0 +1,35 @@
+Preciso refatorar o formulário de Lançamento e a funcionalidade de Recorrentes no MyFinance, sem quebrar nada que já funciona (DRE, faturas, parcelamento, orçamentos etc.) e sem alterar configs/secrets/deploy.
+
+1. UNIFICAR o formulário de recorrência dentro do formulário de transação
+- Em src/components/TransactionFormDialog.tsx, adicione um campo toggle "Esta é uma transação recorrente?" (só disponível ao criar uma nova transação, não ao editar uma transação já existente/gerada).
+- Quando o toggle estiver LIGADO:
+  - Oculte o campo "Status" (recorrência não tem status fixo).
+  - Troque o campo "Data" por "Data de início".
+  - Exiba "Frequência" (once, daily, weekly, monthly, yearly) e "Data fim (opcional)", com os mesmos componentes visuais usados hoje em ScheduledFormDialog.
+  - Ao salvar, chame dataService/FinanceContext addScheduled (em vez de addTransaction), reaproveitando a lógica que já existe.
+- Adapte o componente para aceitar um parâmetro opcional `editingScheduled` (uma ScheduledTransaction), permitindo abrir o mesmo formulário em modo edição de recorrência (toggle já ligado, sem poder desligar durante edição).
+- Em src/pages/Scheduled.tsx, troque a abertura do ScheduledFormDialog por esta mesma TransactionFormDialog unificada, tanto para "Nova Recorrência" quanto para o botão de editar. MANTENHA a tabela/lista de recorrências como está (ela é útil: mostra status do mês, permite pausar/ativar, excluir e regenerar pendência) — só a criação/edição passa a usar o formulário único.
+- Depois de migrar toda a lógica, você pode remover components/ScheduledFormDialog.tsx se não for mais usado em nenhum lugar (confirme com uma busca no projeto antes de apagar).
+
+2. REDESENHAR o layout do formulário de transação para ficar mais claro
+- Aumente a largura do dialog (ex: de max-w-[425px] para max-w-[640px] em telas md+, mantendo responsivo/full-width no mobile).
+- Organize os campos em seções visuais separadas por um pequeno título e/ou divisor (não precisa ser abas, só agrupamento visual claro), por exemplo:
+  - Seção "Detalhes": Tipo, Descrição, Valor, Data (ou Data de início se recorrente)
+  - Seção "Categorização": Categoria, Subcategoria, Classificação no DRE
+  - Seção "Pagamento": Forma de pagamento, Cartão/Conta bancária, Parcelamento
+  - Seção "Recorrência" (só aparece se o toggle estiver ligado): Frequência, Data fim, Ativo
+- Em telas md+, aproveite a largura maior para colocar campos relacionados lado a lado (ex: Valor e Data na mesma linha; Frequência e Data fim na mesma linha), reduzindo a altura total do formulário.
+- Mantenha todas as animações/comportamentos condicionais já existentes (aparecer subcategoria, banco, cartão, parcelas).
+
+3. VALIDAÇÃO condicional de campos obrigatórios
+No schema zod de TransactionFormDialog (e na versão unificada para recorrência):
+- Subcategoria: obrigatória apenas quando a categoria selecionada possui pelo menos uma subcategoria cadastrada (use um refine/superRefine no zod que consulta a lista de subcategorias filtradas pela categoria escolhida). Se a categoria não tiver nenhuma subcategoria, não exija.
+- Conta bancária: obrigatória quando a forma de pagamento NÃO for "cartao_credito" (nesses casos o campo obrigatório correspondente é o Cartão, que já é validado). Ou seja: cartão de crédito exige cartão; qualquer outra forma de pagamento exige banco.
+- Mantenha os campos já obrigatórios (descrição, valor > 0, tipo, categoria, data).
+- Use FormMessage do shadcn (já usado no projeto) para mostrar o erro embaixo do campo, e impeça o submit (form.handleSubmit já faz isso) até que os obrigatórios estejam preenchidos — sem alertas genéricos, mensagens específicas tipo "Selecione uma subcategoria" e "Selecione uma conta bancária".
+- Trate o caso de usuário sem nenhum banco cadastrado: se banks.length === 0 e a forma de pagamento não for cartão, mostre uma mensagem auxiliar tipo "Cadastre uma conta em Configurações > Bancos para continuar" em vez de travar sem explicação.
+
+IMPORTANTE:
+- Não altere .replit, secrets, schema do banco ou nomes de tabelas/colunas existentes.
+- Não quebre o fluxo de parcelamento em cartão, nem a geração automática de pendentes recorrentes (recurringEngine.ts).
+- Rode pnpm run typecheck ao final e me liste os arquivos alterados.

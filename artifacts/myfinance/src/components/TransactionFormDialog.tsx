@@ -9,89 +9,259 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { getIcon } from '@/components/IconMap';
 import { toast } from 'sonner';
-import { Transaction } from '@/data/mockData';
-import { CreditCard, Info, Loader2 } from 'lucide-react';
+import { Transaction, ScheduledTransaction, Subcategory, BankAccount } from '@/data/mockData';
+import { CreditCard, Info, Loader2, Repeat2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DRE_GROUP_OPTIONS, DRE_GROUP_LABEL } from '@/services/dataService';
 
-const transactionSchema = z.object({
-  description:      z.string().min(1, 'Descrição é obrigatória'),
-  amount:           z.coerce.number().min(0.01, 'Valor deve ser maior que zero'),
-  type:             z.enum(['income', 'expense']),
-  categoryId:       z.string().min(1, 'Categoria é obrigatória'),
-  subcategoryId:    z.string().optional(),
-  date:             z.string().min(1, 'Data é obrigatória'),
-  status:           z.enum(['paid', 'pending']),
-  paymentMethod:    z.string().optional(),
-  cardId:           z.string().optional(),
-  bankId:           z.string().optional(),
-  notes:            z.string().optional(),
-  purchaseType:     z.enum(['avista', 'parcelado']).default('avista'),
-  installments:     z.coerce.number().min(2).max(24).default(2),
-  dreGroupOverride: z.string().optional(),
-});
+// ── Section label/divider ─────────────────────────────────────────────────────
+const SectionLabel = ({ children }: { children: React.ReactNode }) => (
+  <div className="flex items-center gap-2 pt-1 col-span-2">
+    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">
+      {children}
+    </span>
+    <div className="flex-1 h-px bg-border" />
+  </div>
+);
 
+// ── Dynamic Zod schema ────────────────────────────────────────────────────────
+const buildSchema = (
+  isRecurring: boolean,
+  subcategories: Subcategory[],
+  banks: BankAccount[],
+) =>
+  z
+    .object({
+      // Common
+      description:      z.string().min(1, 'Descrição é obrigatória'),
+      amount:           z.coerce.number().min(0.01, 'Valor deve ser maior que zero'),
+      type:             z.enum(['income', 'expense']),
+      categoryId:       z.string().min(1, 'Categoria é obrigatória'),
+      subcategoryId:    z.string().optional(),
+      dreGroupOverride: z.string().optional(),
+      notes:            z.string().optional(),
+
+      // Transaction-only
+      date:          z.string().optional(),
+      status:        z.enum(['paid', 'pending']).optional(),
+      paymentMethod: z.string().optional(),
+      cardId:        z.string().optional(),
+      bankId:        z.string().optional(),
+      purchaseType:  z.enum(['avista', 'parcelado']).default('avista'),
+      installments:  z.coerce.number().min(2).max(24).default(2),
+
+      // Recurring-only
+      startDate: z.string().optional(),
+      endDate:   z.string().optional(),
+      frequency: z
+        .enum(['once', 'daily', 'weekly', 'monthly', 'yearly'])
+        .optional(),
+      active: z.boolean().default(true),
+    })
+    .superRefine((data, ctx) => {
+      // Subcategory: required when category has subcategories
+      if (data.categoryId) {
+        const subs = subcategories.filter(s => s.categoryId === data.categoryId);
+        if (
+          subs.length > 0 &&
+          (!data.subcategoryId || data.subcategoryId === '' || data.subcategoryId === '__none__')
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Selecione uma subcategoria',
+            path: ['subcategoryId'],
+          });
+        }
+      }
+
+      if (!isRecurring) {
+        // Date required
+        if (!data.date || data.date === '') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Data é obrigatória',
+            path: ['date'],
+          });
+        }
+        // Card required when credit card payment
+        if (
+          data.type === 'expense' &&
+          data.paymentMethod === 'cartao_credito' &&
+          (!data.cardId || data.cardId === '')
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Selecione um cartão',
+            path: ['cardId'],
+          });
+        }
+        // Bank required for non-card, non-legacy expense payments when banks exist
+        if (
+          data.type === 'expense' &&
+          data.paymentMethod !== 'cartao_credito' &&
+          data.paymentMethod !== 'dinheiro_pix_debito' &&
+          banks.length > 0 &&
+          (!data.bankId || data.bankId === '' || data.bankId === '__none__')
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Selecione uma conta bancária',
+            path: ['bankId'],
+          });
+        }
+      } else {
+        // Start date required in recurring mode
+        if (!data.startDate || data.startDate === '') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'Data de início é obrigatória',
+            path: ['startDate'],
+          });
+        }
+      }
+    });
+
+type FormValues = z.infer<ReturnType<typeof buildSchema>>;
+
+// ── Props ─────────────────────────────────────────────────────────────────────
 interface TransactionFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   transaction?: Transaction | null;
+  /** When set, opens the form in recurring-edit mode (toggle locked ON). */
+  editingScheduled?: ScheduledTransaction | null;
   defaultCardId?: string;
 }
 
-export const TransactionFormDialog = ({ open, onOpenChange, transaction, defaultCardId }: TransactionFormProps) => {
-  const { categories, subcategories, cards, banks, addTransaction, updateTransaction, addInstallments } = useFinance();
+// ── Component ─────────────────────────────────────────────────────────────────
+export const TransactionFormDialog = ({
+  open,
+  onOpenChange,
+  transaction,
+  editingScheduled,
+  defaultCardId,
+}: TransactionFormProps) => {
+  const {
+    categories,
+    subcategories,
+    cards,
+    banks,
+    addTransaction,
+    updateTransaction,
+    addInstallments,
+    addScheduled,
+    updateScheduled,
+  } = useFinance();
 
-  const form = useForm<z.infer<typeof transactionSchema>>({
-    resolver: zodResolver(transactionSchema),
+  // ── Recurring mode state ───────────────────────────────────────────────────
+  const [isRecurring, setIsRecurring] = React.useState(!!editingScheduled);
+  /** Toggle locked when editing an existing scheduled transaction. */
+  const isRecurringLocked = !!editingScheduled;
+  /** Toggle is hidden when editing an existing regular transaction. */
+  const showRecurringToggle = !transaction;
+
+  // Sync when editingScheduled changes externally
+  React.useEffect(() => {
+    setIsRecurring(!!editingScheduled);
+  }, [editingScheduled]);
+
+  // ── Stable resolver that reads from refs so useForm is not re-mounted ──────
+  const isRecurringRef     = React.useRef(isRecurring);
+  const subcategoriesRef   = React.useRef(subcategories);
+  const banksRef           = React.useRef(banks);
+  isRecurringRef.current   = isRecurring;
+  subcategoriesRef.current = subcategories;
+  banksRef.current         = banks;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stableResolver = React.useCallback((...args: any[]) => {
+    const schema = buildSchema(isRecurringRef.current, subcategoriesRef.current, banksRef.current);
+    return (zodResolver(schema) as any)(...args);
+  }, []); // intentionally stable — reads current state via refs
+
+  // ── Form ──────────────────────────────────────────────────────────────────
+  const form = useForm<FormValues>({
+    resolver: stableResolver,
     defaultValues: {
-      description: '', amount: 0, type: 'expense', categoryId: '',
-      subcategoryId: '',
-      date: new Date().toISOString().split('T')[0], status: 'paid',
+      description: '', amount: 0, type: 'expense',
+      categoryId: '', subcategoryId: '', dreGroupOverride: '', notes: '',
+      date: new Date().toISOString().split('T')[0],
+      status: 'paid',
       paymentMethod: defaultCardId ? 'cartao_credito' : 'dinheiro',
-      cardId: defaultCardId ?? '',
-      bankId: '',
-      notes: '',
-      purchaseType: 'avista',
-      installments: 2,
-      dreGroupOverride: '',
+      cardId: defaultCardId ?? '', bankId: '',
+      purchaseType: 'avista', installments: 2,
+      startDate: new Date().toISOString().split('T')[0],
+      endDate: '', frequency: 'monthly', active: true,
     },
   });
 
+  // ── Reset on open / prop change ───────────────────────────────────────────
   React.useEffect(() => {
-    if (open) {
-      if (transaction) {
-        const isCard = !!transaction.cardId;
-        form.reset({
-          description: transaction.description, amount: transaction.amount,
-          type: transaction.type, categoryId: transaction.categoryId,
-          subcategoryId: transaction.subcategoryId ?? '',
-          date: transaction.date.split('T')[0], status: transaction.status,
-          paymentMethod: isCard ? 'cartao_credito' : (transaction.paymentMethod || 'dinheiro'),
-          cardId: transaction.cardId ?? '',
-          bankId: transaction.bankId ?? '',
-          notes: transaction.notes || '',
-          purchaseType: 'avista',
-          installments: 2,
-          dreGroupOverride: transaction.dreGroupOverride ?? '',
-        });
-      } else {
-        form.reset({
-          description: '', amount: 0, type: 'expense', categoryId: '',
-          subcategoryId: '',
-          date: new Date().toISOString().split('T')[0], status: 'paid',
-          paymentMethod: defaultCardId ? 'cartao_credito' : 'dinheiro',
-          cardId: defaultCardId ?? '',
-          bankId: '',
-          notes: '',
-          purchaseType: 'avista',
-          installments: 2,
-        });
-      }
-    }
-  }, [open, transaction, defaultCardId, form]);
+    if (!open) return;
 
+    if (editingScheduled) {
+      setIsRecurring(true);
+      form.reset({
+        description:      editingScheduled.description,
+        amount:           editingScheduled.amount,
+        type:             editingScheduled.type,
+        categoryId:       editingScheduled.categoryId,
+        subcategoryId:    editingScheduled.subcategoryId ?? '',
+        dreGroupOverride: editingScheduled.dreGroupOverride ?? '',
+        notes:            '',
+        startDate:        editingScheduled.startDate.split('T')[0],
+        endDate:          editingScheduled.endDate ? editingScheduled.endDate.split('T')[0] : '',
+        frequency:        editingScheduled.frequency,
+        active:           editingScheduled.active,
+        bankId:           editingScheduled.bankId ?? '',
+        // Transaction defaults (unused in this mode)
+        date: new Date().toISOString().split('T')[0],
+        status: 'paid',
+        paymentMethod: 'dinheiro',
+        cardId: '', purchaseType: 'avista', installments: 2,
+      });
+    } else if (transaction) {
+      setIsRecurring(false);
+      const isCard = !!transaction.cardId;
+      form.reset({
+        description:      transaction.description,
+        amount:           transaction.amount,
+        type:             transaction.type,
+        categoryId:       transaction.categoryId,
+        subcategoryId:    transaction.subcategoryId ?? '',
+        dreGroupOverride: transaction.dreGroupOverride ?? '',
+        notes:            transaction.notes || '',
+        date:             transaction.date.split('T')[0],
+        status:           transaction.status,
+        paymentMethod:    isCard ? 'cartao_credito' : (transaction.paymentMethod || 'dinheiro'),
+        cardId:           transaction.cardId ?? '',
+        bankId:           transaction.bankId ?? '',
+        purchaseType: 'avista', installments: 2,
+        // Recurring defaults (unused in this mode)
+        startDate: new Date().toISOString().split('T')[0],
+        endDate: '', frequency: 'monthly', active: true,
+      });
+    } else {
+      // New transaction / new recurring
+      setIsRecurring(false);
+      form.reset({
+        description: '', amount: 0, type: 'expense',
+        categoryId: '', subcategoryId: '', dreGroupOverride: '', notes: '',
+        date: new Date().toISOString().split('T')[0],
+        status: 'paid',
+        paymentMethod: defaultCardId ? 'cartao_credito' : 'dinheiro',
+        cardId: defaultCardId ?? '', bankId: '',
+        purchaseType: 'avista', installments: 2,
+        startDate: new Date().toISOString().split('T')[0],
+        endDate: '', frequency: 'monthly', active: true,
+      });
+    }
+  }, [open, transaction, editingScheduled, defaultCardId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Watched values ────────────────────────────────────────────────────────
   const type               = form.watch('type');
   const paymentMethod      = form.watch('paymentMethod');
   const purchaseType       = form.watch('purchaseType');
@@ -99,19 +269,22 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
   const selectedSubcatId   = form.watch('subcategoryId');
   const dreGroupOverride   = form.watch('dreGroupOverride');
 
-  const isCardPayment    = type === 'expense' && paymentMethod === 'cartao_credito';
-  const showBankSelector = banks.length > 0
-    && paymentMethod !== 'cartao_credito'
-    && paymentMethod !== 'dinheiro_pix_debito';
+  const isCardPayment  = !isRecurring && type === 'expense' && paymentMethod === 'cartao_credito';
+  const isNewInstallment = isCardPayment && !transaction && purchaseType === 'parcelado';
 
-  const filteredCategories = categories.filter(c => c.type === type);
-  const isNewInstallment   = isCardPayment && !transaction && purchaseType === 'parcelado';
+  // Bank selector: show for non-card expense payments (not legacy dinheiro_pix_debito)
+  const showBankSelectorTx =
+    !isRecurring &&
+    paymentMethod !== 'cartao_credito' &&
+    paymentMethod !== 'dinheiro_pix_debito';
 
+  const filteredCategories     = categories.filter(c => c.type === type);
   const availableSubcategories = selectedCategoryId
     ? subcategories.filter(s => s.categoryId === selectedCategoryId)
     : [];
+  const subcatRequired = availableSubcategories.length > 0;
 
-  // Compute inherited DRE group for the helper text / default display
+  // DRE helpers
   const selectedCategory    = categories.find(c => c.id === selectedCategoryId);
   const selectedSubcategory = subcategories.find(s => s.id === selectedSubcatId);
   const inheritedDreGroup   =
@@ -121,57 +294,131 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
   const isDreOverriding = !!(dreGroupOverride && dreGroupOverride !== '' && dreGroupOverride !== '__inherited__');
   const dreHelperText = isDreOverriding
     ? 'Personalizado para este lançamento'
-    : `Herdado de ${selectedSubcategory ? `${selectedSubcategory.name} (${selectedCategory?.name ?? ''})` : (selectedCategory?.name ?? 'Categoria')}`;
+    : `Herdado de ${
+        selectedSubcategory
+          ? `${selectedSubcategory.name} (${selectedCategory?.name ?? ''})`
+          : (selectedCategory?.name ?? 'Categoria')
+      }`;
 
-  const onSubmit = async (data: z.infer<typeof transactionSchema>) => {
+  // Dialog title
+  const dialogTitle = editingScheduled
+    ? 'Editar Recorrência'
+    : transaction
+      ? 'Editar Transação'
+      : isRecurring
+        ? 'Nova Recorrência'
+        : 'Nova Transação';
+
+  // ── Submit ────────────────────────────────────────────────────────────────
+  const onSubmit = async (data: FormValues) => {
     try {
-      const cardId = isCardPayment && data.cardId ? data.cardId : undefined;
-      const bankId = !isCardPayment && data.bankId && data.bankId !== '' ? data.bankId : undefined;
-      const subcategoryId = data.subcategoryId && data.subcategoryId !== '' ? data.subcategoryId : undefined;
-      const dreGroupOverrideVal = data.dreGroupOverride && data.dreGroupOverride !== '' && data.dreGroupOverride !== '__inherited__'
-        ? data.dreGroupOverride
-        : undefined;
-      const payload: Omit<Transaction, 'id'> = {
-        description: data.description, amount: data.amount, type: data.type,
-        categoryId: data.categoryId,
-        subcategoryId,
-        date: data.date, status: data.status,
-        paymentMethod: data.paymentMethod || undefined,
-        cardId,
-        bankId,
-        notes: data.notes || undefined,
-        dreGroupOverride: dreGroupOverrideVal,
-      };
+      const subcategoryId =
+        data.subcategoryId && data.subcategoryId !== '' && data.subcategoryId !== '__none__'
+          ? data.subcategoryId
+          : undefined;
+      const dreGroupOverrideVal =
+        data.dreGroupOverride && data.dreGroupOverride !== '' && data.dreGroupOverride !== '__inherited__'
+          ? data.dreGroupOverride
+          : undefined;
 
-      if (transaction) {
-        await updateTransaction(transaction.id, { ...payload, cardId: cardId ?? null as unknown as undefined });
-        toast.success('Transação atualizada com sucesso');
-      } else if (isCardPayment && data.purchaseType === 'parcelado' && data.installments > 1) {
-        await addInstallments(payload, data.installments);
-        toast.success(`Compra parcelada em ${data.installments}x lançada com sucesso`);
+      if (isRecurring) {
+        const bankId =
+          data.bankId && data.bankId !== '' && data.bankId !== '__none__'
+            ? data.bankId
+            : undefined;
+        const payload = {
+          description:      data.description,
+          amount:           data.amount,
+          type:             data.type,
+          categoryId:       data.categoryId,
+          subcategoryId,
+          bankId,
+          startDate:        data.startDate!,
+          endDate:          data.endDate || undefined,
+          frequency:        data.frequency!,
+          active:           data.active ?? true,
+          dreGroupOverride: dreGroupOverrideVal,
+        };
+        if (editingScheduled) {
+          await updateScheduled(editingScheduled.id, payload);
+          toast.success('Recorrência atualizada');
+        } else {
+          await addScheduled(payload);
+          toast.success('Recorrência adicionada');
+        }
       } else {
-        await addTransaction(payload);
-        toast.success('Transação adicionada com sucesso');
+        const cardId = isCardPayment && data.cardId ? data.cardId : undefined;
+        const bankId =
+          !isCardPayment && data.bankId && data.bankId !== '' && data.bankId !== '__none__'
+            ? data.bankId
+            : undefined;
+        const payload: Omit<Transaction, 'id'> = {
+          description:      data.description,
+          amount:           data.amount,
+          type:             data.type,
+          categoryId:       data.categoryId,
+          subcategoryId,
+          date:             data.date!,
+          status:           data.status ?? 'paid',
+          paymentMethod:    data.paymentMethod || undefined,
+          cardId,
+          bankId,
+          notes:            data.notes || undefined,
+          dreGroupOverride: dreGroupOverrideVal,
+        };
+        if (transaction) {
+          await updateTransaction(transaction.id, {
+            ...payload,
+            cardId: cardId ?? (null as unknown as undefined),
+          });
+          toast.success('Transação atualizada com sucesso');
+        } else if (isCardPayment && data.purchaseType === 'parcelado' && data.installments > 1) {
+          await addInstallments(payload, data.installments);
+          toast.success(`Compra parcelada em ${data.installments}x lançada com sucesso`);
+        } else {
+          await addTransaction(payload);
+          toast.success('Transação adicionada com sucesso');
+        }
       }
       onOpenChange(false);
     } catch (err: unknown) {
       const { extractErrorMessage } = await import('@/services/dataService');
-      toast.error(`Erro ao salvar transação: ${extractErrorMessage(err)}`);
+      toast.error(`Erro ao salvar: ${extractErrorMessage(err)}`);
     }
   };
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-full sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{transaction ? 'Editar Transação' : 'Nova Transação'}</DialogTitle>
+          <DialogTitle>{dialogTitle}</DialogTitle>
         </DialogHeader>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
 
-              {/* ── Type toggle ── */}
+            {/* ── Recurring toggle ────────────────────────────────────────── */}
+            {showRecurringToggle && (
+              <div className="flex items-center justify-between rounded-lg border px-4 py-3 bg-muted/30">
+                <div className="flex items-center gap-2">
+                  <Repeat2 className="w-4 h-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">Esta é uma transação recorrente?</span>
+                </div>
+                <Switch
+                  checked={isRecurring}
+                  disabled={isRecurringLocked}
+                  onCheckedChange={setIsRecurring}
+                />
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-4">
+
+              {/* ════ DETALHES ════════════════════════════════════════════ */}
+              <SectionLabel>Detalhes</SectionLabel>
+
+              {/* Type */}
               <FormField control={form.control} name="type" render={({ field }) => (
                 <FormItem className="col-span-2">
                   <FormLabel>Tipo</FormLabel>
@@ -198,7 +445,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                         field.onChange('income');
                         form.setValue('categoryId', '');
                         form.setValue('subcategoryId', '');
-                        form.setValue('paymentMethod', 'dinheiro');
+                        if (!isRecurring) form.setValue('paymentMethod', 'dinheiro');
                       }}
                       className={cn(
                         'flex-1 h-9 px-3 rounded-md border text-sm font-medium transition-colors',
@@ -213,7 +460,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                 </FormItem>
               )} />
 
-              {/* Description */}
+              {/* Description — full width */}
               <FormField control={form.control} name="description" render={({ field }) => (
                 <FormItem className="col-span-2">
                   <FormLabel>Descrição</FormLabel>
@@ -222,7 +469,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                 </FormItem>
               )} />
 
-              {/* Amount */}
+              {/* Amount — col 1 */}
               <FormField control={form.control} name="amount" render={({ field }) => (
                 <FormItem>
                   <FormLabel>{isNewInstallment ? 'Valor total (R$)' : 'Valor (R$)'}</FormLabel>
@@ -238,21 +485,47 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                 </FormItem>
               )} />
 
-              {/* Date */}
-              <FormField control={form.control} name="date" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Data da compra</FormLabel>
-                  <FormControl><Input type="date" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
+              {/* Date / Start Date — col 2 */}
+              {!isRecurring ? (
+                <FormField control={form.control} name="date" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Data</FormLabel>
+                    <FormControl>
+                      <Input type="date" {...field} value={field.value || ''} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              ) : (
+                <FormField control={form.control} name="startDate" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Data de início</FormLabel>
+                    <FormControl>
+                      <Input type="date" {...field} value={field.value || ''} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              )}
 
-              {/* Category */}
+              {/* ════ CATEGORIZAÇÃO ═══════════════════════════════════════ */}
+              <SectionLabel>Categorização</SectionLabel>
+
+              {/* Category — full width */}
               <FormField control={form.control} name="categoryId" render={({ field }) => (
                 <FormItem className="col-span-2">
                   <FormLabel>Categoria</FormLabel>
-                  <Select onValueChange={(v) => { field.onChange(v); form.setValue('subcategoryId', ''); }} value={field.value}>
-                    <FormControl><SelectTrigger><SelectValue placeholder="Selecione uma categoria" /></SelectTrigger></FormControl>
+                  <Select
+                    onValueChange={(v) => {
+                      field.onChange(v);
+                      form.setValue('subcategoryId', '');
+                      form.setValue('dreGroupOverride', '');
+                    }}
+                    value={field.value}
+                  >
+                    <FormControl>
+                      <SelectTrigger><SelectValue placeholder="Selecione uma categoria" /></SelectTrigger>
+                    </FormControl>
                     <SelectContent>
                       {filteredCategories.length === 0 ? (
                         <div className="px-3 py-2 text-sm text-muted-foreground">
@@ -277,7 +550,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                 </FormItem>
               )} />
 
-              {/* Subcategory — animated */}
+              {/* Subcategory — animated, required when category has subs */}
               <AnimatePresence>
                 {availableSubcategories.length > 0 && (
                   <motion.div
@@ -291,14 +564,28 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                   >
                     <FormField control={form.control} name="subcategoryId" render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Subcategoria <span className="text-muted-foreground font-normal">(opcional)</span></FormLabel>
+                        <FormLabel>
+                          Subcategoria{' '}
+                          {!subcatRequired && (
+                            <span className="text-muted-foreground font-normal">(opcional)</span>
+                          )}
+                        </FormLabel>
                         <Select
-                          onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
-                          value={field.value && field.value !== '' ? field.value : '__none__'}
+                          onValueChange={(v) => {
+                            field.onChange(v === '__none__' ? '' : v);
+                            form.setValue('dreGroupOverride', '');
+                          }}
+                          value={field.value && field.value !== '' ? field.value : (subcatRequired ? '' : '__none__')}
                         >
-                          <FormControl><SelectTrigger><SelectValue placeholder="Selecione uma subcategoria" /></SelectTrigger></FormControl>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione uma subcategoria" />
+                            </SelectTrigger>
+                          </FormControl>
                           <SelectContent>
-                            <SelectItem value="__none__">— Nenhuma —</SelectItem>
+                            {!subcatRequired && (
+                              <SelectItem value="__none__">— Nenhuma —</SelectItem>
+                            )}
                             {availableSubcategories.map((sub) => (
                               <SelectItem key={sub.id} value={sub.id}>{sub.name}</SelectItem>
                             ))}
@@ -311,150 +598,7 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                 )}
               </AnimatePresence>
 
-              {/* Payment method — only for expenses */}
-              {type === 'expense' && (
-                <FormField control={form.control} name="paymentMethod" render={({ field }) => (
-                  <FormItem className="col-span-2">
-                    <FormLabel>Forma de pagamento</FormLabel>
-                    <Select onValueChange={(v) => {
-                      field.onChange(v);
-                      if (v !== 'cartao_credito') { form.setValue('cardId', ''); form.setValue('purchaseType', 'avista'); }
-                      if (v === 'cartao_credito') form.setValue('bankId', '');
-                    }} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        {field.value === 'dinheiro_pix_debito' && (
-                          <SelectItem value="dinheiro_pix_debito">Dinheiro / PIX / Débito (legado)</SelectItem>
-                        )}
-                        <SelectItem value="dinheiro">Dinheiro</SelectItem>
-                        <SelectItem value="pix">PIX</SelectItem>
-                        <SelectItem value="debito">Débito</SelectItem>
-                        <SelectItem value="cartao_credito">
-                          <div className="flex items-center gap-2"><CreditCard className="w-4 h-4" /> Cartão de Crédito</div>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              )}
-
-              {/* Bank account selector — for non-card payments when banks exist */}
-              <AnimatePresence>
-                {showBankSelector && (
-                  <motion.div
-                    key="bank-field"
-                    className="col-span-2"
-                    initial={{ opacity: 0, y: -6, height: 0 }}
-                    animate={{ opacity: 1, y: 0, height: 'auto' }}
-                    exit={{ opacity: 0, y: -6, height: 0 }}
-                    transition={{ duration: 0.15, ease: 'easeOut' }}
-                    style={{ overflow: 'hidden' }}
-                  >
-                    <FormField control={form.control} name="bankId" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          Conta bancária <span className="text-muted-foreground font-normal">(opcional)</span>
-                        </FormLabel>
-                        <Select
-                          onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
-                          value={field.value && field.value !== '' ? field.value : '__none__'}
-                        >
-                          <FormControl><SelectTrigger><SelectValue placeholder="Selecione a conta" /></SelectTrigger></FormControl>
-                          <SelectContent>
-                            <SelectItem value="__none__">— Nenhuma —</SelectItem>
-                            {banks.map((b) => (
-                              <SelectItem key={b.id} value={b.id}>
-                                <div className="flex items-center gap-2">
-                                  <span className="w-2.5 h-2.5 rounded-full inline-block shrink-0" style={{ backgroundColor: b.color }} />
-                                  {b.name}
-                                  <span className="text-muted-foreground text-xs">({b.type})</span>
-                                </div>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Card selector — only when credit card is selected */}
-              {isCardPayment && (
-                <FormField control={form.control} name="cardId" render={({ field }) => (
-                  <FormItem className="col-span-2">
-                    <FormLabel>Cartão</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder={cards.length === 0 ? 'Nenhum cartão cadastrado' : 'Selecione o cartão'} />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {cards.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            <div className="flex items-center gap-2">
-                              <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: c.color }} />
-                              {c.name} — {c.bank}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              )}
-
-              {/* Purchase type — only for new card transactions */}
-              {isCardPayment && !transaction && (
-                <FormField control={form.control} name="purchaseType" render={({ field }) => (
-                  <FormItem className="col-span-2">
-                    <FormLabel>Tipo de compra</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="avista">À vista</SelectItem>
-                        <SelectItem value="parcelado">Parcelado</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              )}
-
-              {/* Installment count — only when parcelado */}
-              {isCardPayment && !transaction && purchaseType === 'parcelado' && (
-                <FormField control={form.control} name="installments" render={({ field }) => (
-                  <FormItem className="col-span-2">
-                    <FormLabel>Número de parcelas</FormLabel>
-                    <Select onValueChange={(v) => field.onChange(Number(v))} value={String(field.value)}>
-                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        {Array.from({ length: 23 }, (_, i) => i + 2).map(n => (
-                          <SelectItem key={n} value={String(n)}>{n}x</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-              )}
-
-              {/* Notice when editing an installment transaction */}
-              {transaction?.installmentGroupId && (
-                <div className="col-span-2 flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
-                  <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  <span>
-                    Parcela <strong>{transaction.installmentNumber}/{transaction.installmentTotal}</strong> de uma compra parcelada.
-                    A edição afeta apenas esta parcela.
-                  </span>
-                </div>
-              )}
-
-              {/* DRE classification override — only when a category is selected */}
+              {/* DRE classification — full width, only when category selected */}
               {selectedCategoryId && (
                 <FormField control={form.control} name="dreGroupOverride" render={({ field }) => (
                   <FormItem className="col-span-2">
@@ -489,28 +633,319 @@ export const TransactionFormDialog = ({ open, onOpenChange, transaction, default
                 )} />
               )}
 
-              {/* Status */}
-              <FormField control={form.control} name="status" render={({ field }) => (
-                <FormItem className="col-span-2">
-                  <FormLabel>Status</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      <SelectItem value="paid">Pago / Recebido</SelectItem>
-                      <SelectItem value="pending">Pendente</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
+              {/* ════ PAGAMENTO (transaction mode only) ══════════════════ */}
+              {!isRecurring && (
+                <>
+                  <SectionLabel>Pagamento</SectionLabel>
+
+                  {/* Status — col 1 */}
+                  <FormField control={form.control} name="status" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Status</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                        <SelectContent>
+                          <SelectItem value="paid">Pago / Recebido</SelectItem>
+                          <SelectItem value="pending">Pendente</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+
+                  {/* Payment method — col 2, only for expenses */}
+                  {type === 'expense' ? (
+                    <FormField control={form.control} name="paymentMethod" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Forma de pagamento</FormLabel>
+                        <Select
+                          onValueChange={(v) => {
+                            field.onChange(v);
+                            if (v !== 'cartao_credito') {
+                              form.setValue('cardId', '');
+                              form.setValue('purchaseType', 'avista');
+                            }
+                            if (v === 'cartao_credito') form.setValue('bankId', '');
+                          }}
+                          value={field.value}
+                        >
+                          <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                          <SelectContent>
+                            {field.value === 'dinheiro_pix_debito' && (
+                              <SelectItem value="dinheiro_pix_debito">
+                                Dinheiro / PIX / Débito (legado)
+                              </SelectItem>
+                            )}
+                            <SelectItem value="dinheiro">Dinheiro</SelectItem>
+                            <SelectItem value="pix">PIX</SelectItem>
+                            <SelectItem value="debito">Débito</SelectItem>
+                            <SelectItem value="cartao_credito">
+                              <div className="flex items-center gap-2">
+                                <CreditCard className="w-4 h-4" /> Cartão de Crédito
+                              </div>
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  ) : (
+                    /* Income has no payment method — empty col 2 placeholder */
+                    <div />
+                  )}
+
+                  {/* Bank account — animated, for non-card tx payments */}
+                  <AnimatePresence>
+                    {showBankSelectorTx && (
+                      <motion.div
+                        key="bank-field"
+                        className="col-span-2"
+                        initial={{ opacity: 0, y: -6, height: 0 }}
+                        animate={{ opacity: 1, y: 0, height: 'auto' }}
+                        exit={{ opacity: 0, y: -6, height: 0 }}
+                        transition={{ duration: 0.15, ease: 'easeOut' }}
+                        style={{ overflow: 'hidden' }}
+                      >
+                        {banks.length === 0 ? (
+                          <p className="text-sm text-muted-foreground rounded-md border bg-muted/40 px-3 py-2.5">
+                            Cadastre uma conta em{' '}
+                            <strong>Configurações &gt; Bancos</strong>{' '}
+                            para vincular a este lançamento.
+                          </p>
+                        ) : (
+                          <FormField control={form.control} name="bankId" render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Conta bancária</FormLabel>
+                              <Select
+                                onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
+                                value={field.value && field.value !== '' ? field.value : '__none__'}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Selecione a conta" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="__none__">— Nenhuma —</SelectItem>
+                                  {banks.map((b) => (
+                                    <SelectItem key={b.id} value={b.id}>
+                                      <div className="flex items-center gap-2">
+                                        <span
+                                          className="w-2.5 h-2.5 rounded-full inline-block shrink-0"
+                                          style={{ backgroundColor: b.color }}
+                                        />
+                                        {b.name}
+                                        <span className="text-muted-foreground text-xs">({b.type})</span>
+                                      </div>
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                        )}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* Card selector — only for credit card payments */}
+                  {isCardPayment && (
+                    <FormField control={form.control} name="cardId" render={({ field }) => (
+                      <FormItem className="col-span-2">
+                        <FormLabel>Cartão</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue
+                                placeholder={
+                                  cards.length === 0
+                                    ? 'Nenhum cartão cadastrado'
+                                    : 'Selecione o cartão'
+                                }
+                              />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {cards.map((c) => (
+                              <SelectItem key={c.id} value={c.id}>
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="w-3 h-3 rounded-full inline-block"
+                                    style={{ backgroundColor: c.color }}
+                                  />
+                                  {c.name} — {c.bank}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  )}
+
+                  {/* Purchase type — only for new card transactions */}
+                  {isCardPayment && !transaction && (
+                    <FormField control={form.control} name="purchaseType" render={({ field }) => (
+                      <FormItem className="col-span-2">
+                        <FormLabel>Tipo de compra</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                          <SelectContent>
+                            <SelectItem value="avista">À vista</SelectItem>
+                            <SelectItem value="parcelado">Parcelado</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  )}
+
+                  {/* Installment count */}
+                  {isCardPayment && !transaction && purchaseType === 'parcelado' && (
+                    <FormField control={form.control} name="installments" render={({ field }) => (
+                      <FormItem className="col-span-2">
+                        <FormLabel>Número de parcelas</FormLabel>
+                        <Select
+                          onValueChange={(v) => field.onChange(Number(v))}
+                          value={String(field.value)}
+                        >
+                          <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                          <SelectContent>
+                            {Array.from({ length: 23 }, (_, i) => i + 2).map((n) => (
+                              <SelectItem key={n} value={String(n)}>{n}x</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  )}
+
+                  {/* Installment notice */}
+                  {transaction?.installmentGroupId && (
+                    <div className="col-span-2 flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+                      <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                      <span>
+                        Parcela{' '}
+                        <strong>
+                          {transaction.installmentNumber}/{transaction.installmentTotal}
+                        </strong>{' '}
+                        de uma compra parcelada. A edição afeta apenas esta parcela.
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* ════ RECORRÊNCIA (recurring mode only) ══════════════════ */}
+              {isRecurring && (
+                <>
+                  <SectionLabel>Recorrência</SectionLabel>
+
+                  {/* Frequency — col 1 */}
+                  <FormField control={form.control} name="frequency" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Frequência</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value ?? 'monthly'}
+                      >
+                        <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                        <SelectContent>
+                          <SelectItem value="daily">Diário</SelectItem>
+                          <SelectItem value="weekly">Semanal</SelectItem>
+                          <SelectItem value="monthly">Mensal</SelectItem>
+                          <SelectItem value="yearly">Anual</SelectItem>
+                          <SelectItem value="once">Uma vez</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+
+                  {/* End date — col 2 */}
+                  <FormField control={form.control} name="endDate" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        Data fim{' '}
+                        <span className="text-muted-foreground font-normal">(opcional)</span>
+                      </FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} value={field.value || ''} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+
+                  {/* Bank account — optional for recurring */}
+                  {banks.length > 0 && (
+                    <FormField control={form.control} name="bankId" render={({ field }) => (
+                      <FormItem className="col-span-2">
+                        <FormLabel>
+                          Conta bancária{' '}
+                          <span className="text-muted-foreground font-normal">(opcional)</span>
+                        </FormLabel>
+                        <Select
+                          onValueChange={(v) => field.onChange(v === '__none__' ? '' : v)}
+                          value={field.value && field.value !== '' ? field.value : '__none__'}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Selecione a conta" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="__none__">— Nenhuma —</SelectItem>
+                            {banks.map((b) => (
+                              <SelectItem key={b.id} value={b.id}>
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="w-2.5 h-2.5 rounded-full inline-block shrink-0"
+                                    style={{ backgroundColor: b.color }}
+                                  />
+                                  {b.name}
+                                  <span className="text-muted-foreground text-xs">({b.type})</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  )}
+
+                  {/* Active toggle */}
+                  <FormField control={form.control} name="active" render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4 col-span-2">
+                      <FormLabel className="text-base">Ativo</FormLabel>
+                      <FormControl>
+                        <Switch
+                          checked={field.value ?? true}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )} />
+                </>
+              )}
             </div>
 
             <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={form.formState.isSubmitting}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={form.formState.isSubmitting}
+              >
                 Cancelar
               </Button>
               <Button type="submit" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {form.formState.isSubmitting && (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                )}
                 {isNewInstallment ? 'Lançar parcelado' : 'Salvar'}
               </Button>
             </DialogFooter>

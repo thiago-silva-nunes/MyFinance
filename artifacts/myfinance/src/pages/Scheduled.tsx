@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { getIcon } from '@/components/IconMap';
-import { ScheduledFormDialog } from '@/components/ScheduledFormDialog';
+import { TransactionFormDialog } from '@/components/TransactionFormDialog';
 import { ScheduledTransaction } from '@/data/mockData';
 import { Plus, Edit2, Trash2, RefreshCw, BarChart2, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
@@ -210,10 +210,10 @@ export const Scheduled = () => {
         </Table>
       </div>
 
-      <ScheduledFormDialog
+      <TransactionFormDialog
         open={isFormOpen}
-        onOpenChange={setIsFormOpen}
-        scheduled={editingScheduled}
+        onOpenChange={(open) => { setIsFormOpen(open); if (!open) setEditingScheduled(null); }}
+        editingScheduled={editingScheduled}
       />
     </div>
   );
