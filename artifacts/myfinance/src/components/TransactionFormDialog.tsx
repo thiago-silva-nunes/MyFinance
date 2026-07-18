@@ -16,6 +16,8 @@ import { Transaction, ScheduledTransaction, Subcategory, BankAccount } from '@/d
 import { CreditCard, Info, Loader2, Repeat2, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { DRE_GROUP_OPTIONS, DRE_GROUP_LABEL } from '@/services/dataService';
+import { CurrencyInput } from '@/components/ui/currency-input';
+import { DatePicker } from '@/components/ui/date-picker';
 
 // ── Section label/divider ─────────────────────────────────────────────────────
 const SectionLabel = ({ children }: { children: React.ReactNode }) => (
@@ -501,12 +503,7 @@ export const TransactionFormDialog = ({
                 <FormItem>
                   <FormLabel>{isNewInstallment ? 'Valor total (R$)' : 'Valor (R$)'}</FormLabel>
                   <FormControl>
-                    <Input
-                      type="number" step="0.01" min="0" placeholder="0.00"
-                      {...field}
-                      value={field.value === 0 ? '' : field.value}
-                      onChange={(e) => field.onChange(e.target.valueAsNumber || 0)}
-                    />
+                    <CurrencyInput value={field.value} onChange={field.onChange} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -518,7 +515,7 @@ export const TransactionFormDialog = ({
                   <FormItem>
                     <FormLabel>Data</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} value={field.value || ''} />
+                      <DatePicker value={field.value || ''} onChange={field.onChange} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -528,7 +525,7 @@ export const TransactionFormDialog = ({
                   <FormItem>
                     <FormLabel>Data de início</FormLabel>
                     <FormControl>
-                      <Input type="date" {...field} value={field.value || ''} />
+                      <DatePicker value={field.value || ''} onChange={field.onChange} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

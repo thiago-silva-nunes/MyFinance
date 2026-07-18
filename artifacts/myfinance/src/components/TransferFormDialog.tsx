@@ -12,6 +12,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { Transfer } from '@/data/mockData';
 import { extractErrorMessage } from '@/services/dataService';
+import { CurrencyInput } from '@/components/ui/currency-input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Loader2, ArrowRightLeft } from 'lucide-react';
 import { getIcon } from '@/components/IconMap';
 
@@ -186,12 +188,7 @@ export const TransferFormDialog = ({ open, onOpenChange, transfer }: TransferFor
                 <FormItem>
                   <FormLabel>Valor (R$)</FormLabel>
                   <FormControl>
-                    <Input
-                      type="number" step="0.01" min="0" placeholder="0.00"
-                      {...field}
-                      value={field.value === 0 ? '' : field.value}
-                      onChange={e => field.onChange(e.target.valueAsNumber || 0)}
-                    />
+                    <CurrencyInput value={field.value} onChange={field.onChange} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -200,7 +197,9 @@ export const TransferFormDialog = ({ open, onOpenChange, transfer }: TransferFor
               <FormField control={form.control} name="date" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Data</FormLabel>
-                  <FormControl><Input type="date" {...field} /></FormControl>
+                  <FormControl>
+                    <DatePicker value={field.value || ''} onChange={field.onChange} />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )} />

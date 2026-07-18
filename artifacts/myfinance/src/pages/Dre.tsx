@@ -7,7 +7,7 @@ import { formatCurrency } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip as RechartsTooltip, LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -297,9 +297,9 @@ export const Dre = () => {
           </Select>
           {period === 'custom' && (
             <>
-              <Input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} className="w-36" />
+              <DatePicker value={customStart} onChange={setCustomStart} className="w-44" />
               <span className="text-muted-foreground text-sm">até</span>
-              <Input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="w-36" />
+              <DatePicker value={customEnd} onChange={setCustomEnd} className="w-44" />
             </>
           )}
         </div>

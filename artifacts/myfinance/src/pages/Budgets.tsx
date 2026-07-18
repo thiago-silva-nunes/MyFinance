@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
+import { CurrencyInput } from '@/components/ui/currency-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
@@ -139,12 +140,7 @@ function BudgetDialog({ open, onOpenChange, budget, defaultGroupId }: BudgetDial
               <FormItem>
                 <FormLabel>Valor limite (R$)</FormLabel>
                 <FormControl>
-                  <Input
-                    type="number" step="0.01" min="0" placeholder="0.00"
-                    {...field}
-                    value={field.value === 0 ? '' : field.value}
-                    onChange={e => field.onChange(e.target.valueAsNumber || 0)}
-                  />
+                  <CurrencyInput value={field.value} onChange={field.onChange} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -285,10 +281,10 @@ function GroupDialog({ open, onOpenChange, group }: GroupDialogProps) {
                   Limite total do grupo (R$) <span className="text-muted-foreground font-normal">(opcional)</span>
                 </FormLabel>
                 <FormControl>
-                  <Input
-                    type="number" step="0.01" min="0" placeholder="Deixe em branco para usar a soma dos limites individuais"
-                    value={field.value === undefined || field.value === 0 ? '' : field.value}
-                    onChange={e => field.onChange(e.target.value === '' ? undefined : e.target.valueAsNumber)}
+                  <CurrencyInput
+                    value={field.value ?? 0}
+                    onChange={(v) => field.onChange(v > 0 ? v : undefined)}
+                    placeholder="0,00 (opcional)"
                   />
                 </FormControl>
                 <FormMessage />

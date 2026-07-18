@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
+import { DatePicker } from '@/components/ui/date-picker';
 import { getIcon } from '@/components/IconMap';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -235,21 +236,9 @@ export const ScheduledAnalysis = () => {
           )}
           {period === 'custom_range' && (
             <>
-              <Input
-                type="date"
-                className="w-40"
-                value={customStart}
-                onChange={e => setCustomStart(e.target.value)}
-                placeholder="Data início"
-              />
+              <DatePicker value={customStart} onChange={setCustomStart} className="w-44" />
               <span className="text-muted-foreground text-sm">até</span>
-              <Input
-                type="date"
-                className="w-40"
-                value={customEnd}
-                onChange={e => setCustomEnd(e.target.value)}
-                placeholder="Data fim"
-              />
+              <DatePicker value={customEnd} onChange={setCustomEnd} className="w-44" />
             </>
           )}
         </div>

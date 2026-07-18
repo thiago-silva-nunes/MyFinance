@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { CreditCard } from '@/data/mockData';
+import { CurrencyInput } from '@/components/ui/currency-input';
 
 const BRAND_OPTIONS = [
   { value: 'visa', label: 'Visa' },
@@ -118,15 +119,7 @@ export const CardFormDialog = ({ open, onOpenChange, card }: CardFormProps) => {
                 <FormItem className="col-span-2">
                   <FormLabel>Limite total (R$)</FormLabel>
                   <FormControl>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      placeholder="5000.00"
-                      {...field}
-                      value={field.value === 0 ? '' : field.value}
-                      onChange={(e) => field.onChange(e.target.valueAsNumber || 0)}
-                    />
+                    <CurrencyInput value={field.value} onChange={field.onChange} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

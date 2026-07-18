@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { BankAccount } from '@/data/mockData';
+import { CurrencyInput } from '@/components/ui/currency-input';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -145,12 +146,7 @@ export const BankFormDialog = ({ open, onOpenChange, bank }: BankFormDialogProps
               <FormItem>
                 <FormLabel>Saldo inicial (R$)</FormLabel>
                 <FormControl>
-                  <Input
-                    type="number" step="0.01" placeholder="0.00"
-                    {...field}
-                    value={field.value === 0 ? '' : field.value}
-                    onChange={e => field.onChange(e.target.valueAsNumber || 0)}
-                  />
+                  <CurrencyInput value={field.value} onChange={field.onChange} />
                 </FormControl>
                 <FormMessage />
               </FormItem>

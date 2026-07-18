@@ -1,0 +1,24 @@
+Preciso de mais duas melhorias nos formulários do MyFinance, complementando o que já foi pedido antes (sem quebrar nada existente).
+
+1. CAMPO DE VALOR MONETÁRIO SEM DIGITAR PONTO/VÍRGULA
+- Crie um componente reutilizável src/components/ui/currency-input.tsx (ou local em components/) que funcione como os campos de valor de apps bancários: o usuário digita só números, e o componente formata automaticamente como moeda brasileira em tempo real, tratando os dois últimos dígitos digitados como centavos (ex: digitar "1", "0", "4", "5", "0" resulta em "104,50"; apagar um dígito com backspace desloca corretamente).
+- O componente deve exibir o valor formatado (ex: "R$ 104,50" ou "104,50", conforme o padrão visual já usado no campo "Valor (R$)") mas expor/retornar internamente um número puro (ex: 104.50) para o react-hook-form via field.onChange.
+- Deve funcionar bem com teclado numérico em mobile (use inputMode="numeric" ou similar).
+- Substitua os inputs type="number" de valores monetários por esse novo componente nos seguintes arquivos: components/TransactionFormDialog.tsx (campo Valor), components/ScheduledFormDialog.tsx (campo Valor), components/TransferFormDialog.tsx (campo Valor), components/CardFormDialog.tsx (campo Limite), components/BankFormDialog.tsx (campo Saldo inicial, se houver), pages/Budgets.tsx (campo de valor/limite do orçamento).
+- NÃO aplique esse componente em campos que não são monetários (ex: número de parcelas, dias de fechamento/vencimento de cartão) — mantenha esses como estão.
+
+2. SELETOR DE DATA NO PADRÃO BRASILEIRO (dd/mm/aaaa) EM QUALQUER NAVEGADOR
+- O problema: o input nativo type="date" exibe o formato conforme o idioma do navegador/SO do usuário, não conforme o idioma do site — por isso aparece mês/dia/ano para alguns usuários mesmo com o app em pt-BR. Precisa ser substituído por um componente próprio que sempre mostre e aceite dd/mm/aaaa, independente da configuração do navegador.
+- O projeto já tem react-day-picker e date-fns instalados, e um componente base em src/components/ui/calendar.tsx (verifique se já existe e está pronto para uso; se não estiver integrado, complete a integração). Use também src/components/ui/popover.tsx, que também já existe.
+- Crie um componente reutilizável, ex: src/components/ui/date-picker.tsx, que:
+  - Exiba um campo de texto mostrando a data sempre no formato dd/mm/aaaa (use date-fns com locale ptBR — import { ptBR } from 'date-fns/locale').
+  - Ao clicar, abra um Popover com o Calendar para seleção visual da data.
+  - Permita também digitar a data diretamente no formato dd/mm/aaaa no campo de texto (com validação básica de formato).
+  - Receba e retorne a data como string "YYYY-MM-DD" (mesmo formato já usado internamente no projeto e salvo no banco) para não quebrar a integração com o restante do código — a conversão de exibição (dd/mm/aaaa) para o formato interno (yyyy-mm-dd) deve ser interna ao componente.
+- Substitua os inputs type="date" por esse novo componente nos seguintes arquivos: components/TransactionFormDialog.tsx (Data / Data de início), components/ScheduledFormDialog.tsx (Data Início, Data Fim), components/TransferFormDialog.tsx (Data), pages/Dre.tsx (filtro de período, se usar input de data), pages/ScheduledAnalysis.tsx (filtro de período, se usar input de data).
+
+IMPORTANTE:
+- Não altere o formato de armazenamento no banco (datas continuam "YYYY-MM-DD", valores continuam number/numeric).
+- Reaproveite os componentes shadcn já existentes (calendar.tsx, popover.tsx) em vez de adicionar bibliotecas novas.
+- Teste especialmente: edição de transação existente (o valor e a data devem vir pré-preenchidos corretamente nos novos componentes), parcelamento, e os filtros de período no Dashboard/Relatórios/DRE que também usam datas.
+- Rode pnpm run typecheck ao final e liste os arquivos criados/alterados.
