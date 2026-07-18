@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useFinance } from '@/context/FinanceContext';
 import { dataService } from '@/services/dataService';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, parseLocalDate } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
@@ -39,7 +39,7 @@ export const Reports = () => {
     const monthlyMap: Record<string, { income: number, expense: number, name: string }> = {};
 
     paidTxs.forEach(t => {
-      const d = new Date(t.date);
+      const d = parseLocalDate(t.date);
       const monthYear = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       const monthName = d.toLocaleString('pt-BR', { month: 'short', year: '2-digit' });
 
@@ -74,7 +74,7 @@ export const Reports = () => {
     // Expenses for pie chart — current month, optionally filtered by category
     const now = new Date();
     let currentMonthTxs = paidTxs.filter(t => {
-      const d = new Date(t.date);
+      const d = parseLocalDate(t.date);
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && t.type === 'expense';
     });
 

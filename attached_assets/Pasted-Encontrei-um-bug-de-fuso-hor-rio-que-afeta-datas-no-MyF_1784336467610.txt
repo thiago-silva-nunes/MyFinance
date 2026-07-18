@@ -1,0 +1,40 @@
+Encontrei um bug de fuso horário que afeta datas no MyFinance: datas armazenadas como "YYYY-MM-DD" (sem hora) estão sendo interpretadas como UTC ao serem exibidas/calculadas, o que faz aparecer um dia a menos para usuários em fusos negativos (ex: Brasil, UTC-3). Preciso corrigir isso em todo o projeto, sem quebrar nada.
+
+1. CRIAR UMA FUNÇÃO SEGURA DE PARSE DE DATA LOCAL
+Em src/lib/utils.ts, adicione:
+
+export function parseLocalDate(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d); // mês é 0-indexado; cria a data no fuso LOCAL, não UTC
+}
+
+Essa função deve ser usada em qualquer lugar que receba uma string de data "pura" (formato YYYY-MM-DD, sem hora) vinda do banco/formulário e precise convertê-la em objeto Date para exibir ou calcular. Se a string já vier com hora/timezone (ex: algo com "T" e "Z"), pode continuar usando new Date() normalmente — o problema é específico de datas sem componente de hora.
+
+2. ATUALIZAR formatDate e formatShortDate em lib/utils.ts
+Troque `new Date(isoString)` por `parseLocalDate(isoString)` dentro dessas duas funções (mantendo a formatação Intl.DateTimeFormat pt-BR como está).
+
+3. AUDITAR TODOS OS USOS DE `new Date(algumaString)` NO PROJETO
+Faça uma busca por `new Date(` em todo o src/ (exclua os casos de `new Date()` sem argumento, que pegam a data/hora atual e não têm esse problema). Verifique especialmente estes arquivos, que fazem parse de datas de transações/recorrências para exibição ou cálculo:
+- pages/Dashboard.tsx
+- pages/Reports.tsx
+- pages/Dre.tsx
+- pages/Budgets.tsx
+- pages/ScheduledAnalysis.tsx
+- services/recurringEngine.ts
+- services/dataService.ts
+- services/notificationService.ts
+- components/TransactionFormDialog.tsx
+- components/ScheduledFormDialog.tsx
+- components/TransferFormDialog.tsx
+
+Para cada ocorrência que faça parse de uma data "pura" (YYYY-MM-DD) vinda do banco, formulário, ou de campos como `date`, `startDate`, `endDate`, `referenceMonth`, `closingDate`, `dueDate` — substitua por `parseLocalDate(...)`. Não altere lógica que já trabalha só com strings (comparação de strings "YYYY-MM-DD" continua correta e não precisa mudar).
+
+4. TESTAR OS CASOS CRÍTICOS
+Depois da correção, confirme manualmente que:
+- Criar uma transação com data 01/07 mostra 01/07 na lista de Transações (não 30/06).
+- O Dashboard e Relatórios mostram os totais no dia/mês correto ao filtrar por período.
+- O fechamento/vencimento de faturas de cartão continua calculando os dias certos.
+- Recorrências geram a transação pendente na data esperada.
+
+IMPORTANTE:
+- Não altere o formato de armazenamento das datas no banco (continua "YYYY-MM-DD").
