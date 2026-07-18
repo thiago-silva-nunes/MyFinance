@@ -5,10 +5,12 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import { getIcon } from '@/components/IconMap';
 import { TransactionFormDialog } from '@/components/TransactionFormDialog';
+import { BulkEditScheduledDialog } from '@/components/BulkEditScheduledDialog';
 import { ScheduledTransaction } from '@/data/mockData';
-import { Plus, Edit2, Trash2, RefreshCw, BarChart2, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
+import { Plus, Edit2, Trash2, RefreshCw, BarChart2, CheckCircle2, Clock, AlertCircle, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'wouter';
 import { getCurrentYearMonth, getExpectedReferenceMonth } from '@/services/recurringEngine';
@@ -19,6 +21,34 @@ export const Scheduled = () => {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingScheduled, setEditingScheduled] = useState<ScheduledTransaction | null>(null);
   const [regenerating, setRegenerating] = useState<string | null>(null);
+
+  // ── Bulk selection ────────────────────────────────────────────────────────
+  const [selectedIds, setSelectedIds]   = useState<Set<string>>(new Set());
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+
+  const someSelected = selectedIds.size > 0;
+  const allSelected  = scheduled.length > 0 && selectedIds.size === scheduled.length;
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds(allSelected ? new Set() : new Set(scheduled.map(s => s.id)));
+  };
+
+  const handleBulkDelete = () => {
+    if (!selectedIds.size) return;
+    if (!confirm(`Excluir ${selectedIds.size} recorrência${selectedIds.size !== 1 ? 's' : ''}? Essa ação não pode ser desfeita.`)) return;
+    const ids = [...selectedIds];
+    ids.forEach(id => deleteScheduled(id));
+    toast.success(`${ids.length} recorrência${ids.length !== 1 ? 's' : ''} excluída${ids.length !== 1 ? 's' : ''}`);
+    setSelectedIds(new Set());
+  };
 
   // Mapa: scheduledId → status da transação do período atual
   const currentPeriodStatus = useMemo(() => {
@@ -81,11 +111,8 @@ export const Scheduled = () => {
 
   const translateFrequency = (freq: string) => {
     const map: Record<string, string> = {
-      'once': 'Uma vez',
-      'daily': 'Diário',
-      'weekly': 'Semanal',
-      'monthly': 'Mensal',
-      'yearly': 'Anual'
+      'once': 'Uma vez', 'daily': 'Diário', 'weekly': 'Semanal',
+      'monthly': 'Mensal', 'yearly': 'Anual'
     };
     return map[freq] || freq;
   };
@@ -130,10 +157,40 @@ export const Scheduled = () => {
         </div>
       </div>
 
+      {/* Bulk action bar */}
+      {someSelected && (
+        <div className="flex items-center justify-between bg-primary/10 border border-primary/20 rounded-lg px-4 py-2.5 gap-3">
+          <span className="text-sm font-medium">
+            {selectedIds.size} selecionada{selectedIds.size !== 1 ? 's' : ''}
+          </span>
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>
+              Limpar seleção
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setBulkEditOpen(true)}>
+              <Pencil className="w-3.5 h-3.5 mr-1.5" />
+              Editar selecionadas
+            </Button>
+            <Button variant="destructive" size="sm" onClick={handleBulkDelete}>
+              <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+              Excluir selecionadas
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-card border rounded-xl p-0 overflow-hidden shadow-sm">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50">
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={toggleSelectAll}
+                  aria-label="Selecionar todas"
+                  className={someSelected && !allSelected ? 'opacity-60' : ''}
+                />
+              </TableHead>
               <TableHead>Descrição</TableHead>
               <TableHead>Categoria</TableHead>
               <TableHead>Frequência</TableHead>
@@ -147,7 +204,7 @@ export const Scheduled = () => {
           <TableBody>
             {scheduled.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                   Nenhuma transação recorrente configurada.
                 </TableCell>
               </TableRow>
@@ -155,8 +212,20 @@ export const Scheduled = () => {
               scheduled.map((s) => {
                 const cat = categories.find(c => c.id === s.categoryId);
                 const Icon = getIcon(cat?.icon || 'more-horizontal');
+                const isSelected = selectedIds.has(s.id);
                 return (
-                  <TableRow key={s.id} className={!s.active ? 'opacity-50 grayscale' : ''}>
+                  <TableRow
+                    key={s.id}
+                    className={`cursor-pointer transition-colors ${!s.active ? 'opacity-50 grayscale' : ''} ${isSelected ? 'bg-primary/5' : 'hover:bg-muted/50'}`}
+                    onClick={() => handleEdit(s)}
+                  >
+                    <TableCell onClick={e => e.stopPropagation()}>
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleSelect(s.id)}
+                        aria-label={`Selecionar ${s.description}`}
+                      />
+                    </TableCell>
                     <TableCell className="font-medium">{s.description}</TableCell>
                     <TableCell>
                       {cat ? (
@@ -176,14 +245,14 @@ export const Scheduled = () => {
                     <TableCell className="text-center">
                       <PeriodBadge scheduledId={s.id} />
                     </TableCell>
-                    <TableCell className="text-center">
+                    <TableCell className="text-center" onClick={e => e.stopPropagation()}>
                       <Switch
                         checked={s.active}
                         onCheckedChange={() => toggleActive(s)}
                         className="mx-auto"
                       />
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                       <div className="flex justify-end gap-1">
                         <Button
                           variant="ghost"
@@ -214,6 +283,13 @@ export const Scheduled = () => {
         open={isFormOpen}
         onOpenChange={(open) => { setIsFormOpen(open); if (!open) setEditingScheduled(null); }}
         editingScheduled={editingScheduled}
+      />
+
+      <BulkEditScheduledDialog
+        open={bulkEditOpen}
+        onOpenChange={setBulkEditOpen}
+        selectedIds={[...selectedIds]}
+        onDone={() => setSelectedIds(new Set())}
       />
     </div>
   );

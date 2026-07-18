@@ -64,11 +64,13 @@ interface FinanceContextType {
   updateTransaction: (id: string, data: Partial<Transaction>) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
   deleteTransactions: (ids: string[]) => Promise<void>;
+  bulkUpdateTransactions: (ids: string[], updates: Partial<Transaction>) => Promise<void>;
   deleteInstallmentGroup: (groupId: string) => Promise<void>;
 
   addScheduled: (data: Omit<ScheduledTransaction, 'id'>) => Promise<void>;
   updateScheduled: (id: string, data: Partial<ScheduledTransaction>) => Promise<void>;
   deleteScheduled: (id: string) => Promise<void>;
+  bulkUpdateScheduled: (ids: string[], updates: Partial<ScheduledTransaction>) => Promise<void>;
 
   addCard: (data: Omit<CreditCard, 'id'>) => Promise<void>;
   updateCard: (id: string, data: Partial<CreditCard>) => Promise<void>;
@@ -312,6 +314,12 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const bulkUpdateTransactions = async (ids: string[], updates: Partial<Transaction>) => {
+    if (ids.length === 0) return;
+    await dataService.bulkUpdateTransactions(ids, updates);
+    await queryClient.invalidateQueries({ queryKey: QK.transactions() });
+  };
+
   const deleteInstallmentGroup = async (groupId: string) => {
     const hasCard = transactions.some(t => t.installmentGroupId === groupId && !!t.cardId);
     await dataService.deleteInstallmentGroup(groupId);
@@ -344,6 +352,11 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   const deleteScheduled = async (id: string) => {
     await dataService.deleteScheduledTransaction(id);
     queryClient.setQueryData(QK.scheduled(), (old: ScheduledTransaction[] = []) => old.filter(x => x.id !== id));
+  };
+
+  const bulkUpdateScheduled = async (ids: string[], updates: Partial<ScheduledTransaction>) => {
+    await dataService.bulkUpdateScheduled(ids, updates);
+    await queryClient.invalidateQueries({ queryKey: QK.scheduled() });
   };
 
   const generatePendingTransaction = async (sched: ScheduledTransaction): Promise<Transaction | null> => {
@@ -477,8 +490,8 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
       refreshData, loadMoreTransactions, hasMoreTransactions,
       addCategory, updateCategory, deleteCategory,
       addSubcategory, updateSubcategory, deleteSubcategory,
-      addTransaction, addInstallments, updateTransaction, deleteTransaction, deleteTransactions, deleteInstallmentGroup,
-      addScheduled, updateScheduled, deleteScheduled,
+      addTransaction, addInstallments, updateTransaction, deleteTransaction, deleteTransactions, bulkUpdateTransactions, deleteInstallmentGroup,
+      addScheduled, updateScheduled, deleteScheduled, bulkUpdateScheduled,
       generatePendingTransaction, regeneratePendingTransaction,
       addCard, updateCard, deleteCard, payInvoice,
       addBudget, updateBudget, deleteBudget,

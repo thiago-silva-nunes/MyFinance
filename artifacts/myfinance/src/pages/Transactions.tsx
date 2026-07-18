@@ -13,7 +13,8 @@ import { getIcon } from '@/components/IconMap';
 import { TransactionFormDialog } from '@/components/TransactionFormDialog';
 import { TransferFormDialog } from '@/components/TransferFormDialog';
 import { Transaction, Transfer } from '@/data/mockData';
-import { Search, Plus, Edit2, Trash2, CheckCircle, Layers, Loader2, ArrowRightLeft, Copy } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, CheckCircle, Layers, Loader2, ArrowRightLeft, Copy, Pencil } from 'lucide-react';
+import { BulkEditTransactionsDialog } from '@/components/BulkEditTransactionsDialog';
 import { toast } from 'sonner';
 
 interface InstallmentDeleteTarget {
@@ -32,7 +33,7 @@ type ListItem =
 export const Transactions = () => {
   const {
     transactions, categories, banks, transfers,
-    deleteTransaction, deleteTransactions, deleteInstallmentGroup, updateTransaction,
+    deleteTransaction, deleteTransactions, deleteInstallmentGroup, updateTransaction, bulkUpdateTransactions,
     deleteTransfer, loadMoreTransactions, hasMoreTransactions,
   } = useFinance();
   const { hideValues } = usePrivacy();
@@ -52,9 +53,10 @@ export const Transactions = () => {
   const [installmentDeleteTarget, setInstallmentDeleteTarget] = useState<InstallmentDeleteTarget | null>(null);
 
   // ── Batch selection (transactions only) ──────────────────────────────────
-  const [selectedIds, setSelectedIds]   = useState<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds]     = useState<Set<string>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [bulkEditOpen, setBulkEditOpen]   = useState(false);
 
   // Build lookup maps for banks
   const bankNameMap = useMemo(() => {
@@ -247,7 +249,7 @@ export const Transactions = () => {
             <span className="text-sm font-medium">
               {selectedIds.size} selecionada{selectedIds.size !== 1 ? 's' : ''}
             </span>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>
                 Limpar seleção
               </Button>
@@ -261,6 +263,10 @@ export const Transactions = () => {
                   </Button>
                 ) : null;
               })()}
+              <Button variant="outline" size="sm" onClick={() => setBulkEditOpen(true)}>
+                <Pencil className="w-3.5 h-3.5 mr-1.5" />
+                Editar selecionadas
+              </Button>
               <Button variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
                 <Trash2 className="w-3.5 h-3.5 mr-1.5" />
                 Excluir selecionadas
@@ -358,8 +364,12 @@ export const Transactions = () => {
                   const isSelected = selectedIds.has(t.id);
 
                   return (
-                    <TableRow key={t.id} className={isSelected ? 'bg-primary/5' : ''}>
-                      <TableCell>
+                    <TableRow
+                      key={t.id}
+                      className={`cursor-pointer transition-colors ${isSelected ? 'bg-primary/5' : 'hover:bg-muted/50'}`}
+                      onClick={() => handleEdit(t)}
+                    >
+                      <TableCell onClick={e => e.stopPropagation()}>
                         <Checkbox
                           checked={isSelected}
                           onCheckedChange={() => toggleSelect(t.id)}
@@ -398,7 +408,7 @@ export const Transactions = () => {
                           </div>
                         ) : <span className="text-muted-foreground">—</span>}
                       </TableCell>
-                      <TableCell>
+                      <TableCell onClick={e => e.stopPropagation()}>
                         <Badge variant={t.status === 'paid' ? 'success' : 'secondary'} className="cursor-pointer" onClick={() => toggleStatus(t)}>
                           {t.status === 'paid' ? 'Pago' : 'Pendente'}
                         </Badge>
@@ -406,7 +416,7 @@ export const Transactions = () => {
                       <TableCell className={`text-right font-medium whitespace-nowrap ${t.type === 'income' ? 'text-success' : ''}`}>
                         {t.type === 'income' ? '+' : '-'}{mask(t.amount)}
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex justify-end gap-2">
                           <Button variant="ghost" size="icon" onClick={() => toggleStatus(t)} title="Alternar status">
                             <CheckCircle className={`w-4 h-4 ${t.status === 'paid' ? 'text-success' : 'text-muted-foreground'}`} />
@@ -485,6 +495,14 @@ export const Transactions = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Bulk edit dialog */}
+      <BulkEditTransactionsDialog
+        open={bulkEditOpen}
+        onOpenChange={setBulkEditOpen}
+        selectedIds={[...selectedIds]}
+        onDone={() => setSelectedIds(new Set())}
+      />
 
       {/* Bulk delete confirmation */}
       <Dialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>

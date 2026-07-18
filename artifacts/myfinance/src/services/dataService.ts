@@ -634,6 +634,19 @@ export const dataService = {
     }
   },
 
+  bulkUpdateTransactions: async (ids: string[], updates: Partial<Transaction>): Promise<void> => {
+    if (ids.length === 0) return;
+    const payload: Record<string, unknown> = {};
+    if (updates.categoryId !== undefined) payload.category_id = updates.categoryId;
+    if (updates.subcategoryId !== undefined) payload.subcategory_id = updates.subcategoryId ?? null;
+    if (updates.bankId !== undefined) payload.bank_id = updates.bankId ?? null;
+    if (updates.status !== undefined) payload.status = updates.status;
+    if (updates.paymentMethod !== undefined) payload.payment_method = updates.paymentMethod;
+    if (Object.keys(payload).length === 0) return;
+    const { error } = await supabase.from('transactions').update(payload).in('id', ids);
+    if (error) throw error;
+  },
+
   deleteInstallmentGroup: async (groupId: string): Promise<void> => {
     const { data: rows, error: fetchErr } = await supabase
       .from('transactions')
@@ -761,6 +774,19 @@ export const dataService = {
 
   deleteScheduledTransaction: async (id: string): Promise<void> => {
     const { error } = await supabase.from('scheduled_transactions').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  bulkUpdateScheduled: async (ids: string[], updates: Partial<ScheduledTransaction>): Promise<void> => {
+    if (ids.length === 0) return;
+    const payload: Record<string, unknown> = {};
+    if (updates.categoryId !== undefined) payload.category_id = updates.categoryId;
+    if (updates.subcategoryId !== undefined) payload.subcategory_id = updates.subcategoryId ?? null;
+    if (updates.bankId !== undefined) payload.bank_id = updates.bankId ?? null;
+    if (updates.frequency !== undefined) payload.frequency = updates.frequency;
+    if (updates.active !== undefined) payload.active = updates.active;
+    if (Object.keys(payload).length === 0) return;
+    const { error } = await supabase.from('scheduled_transactions').update(payload).in('id', ids);
     if (error) throw error;
   },
 

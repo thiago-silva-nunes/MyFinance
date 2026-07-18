@@ -1,0 +1,33 @@
+Preciso de 4 melhorias nos formulários e tabelas de Transações e Recorrentes do MyFinance, sem quebrar filtros, seleção existente ou os cálculos já corrigidos anteriormente.
+
+1. EDIÇÃO EM MASSA NAS TRANSAÇÕES
+- A tabela de Transações (src/pages/Transactions.tsx) já tem seleção via checkbox e uma barra de ações em massa (hoje só com "Excluir selecionadas"). Adicione um botão "Editar selecionadas" nessa barra, habilitado quando 1 ou mais itens estiverem marcados.
+- Ao clicar, abra um dialog de edição em massa (novo componente, ex: components/BulkEditTransactionsDialog.tsx) com os seguintes campos, todos OPCIONAIS e desativados por padrão:
+  - Categoria (e Subcategoria dependente dela)
+  - Conta bancária
+  - Status (Pago/Pendente)
+  - Forma de pagamento
+- Cada campo deve ter um checkbox/toggle "Alterar este campo" ao lado — só os campos marcados devem ser realmente atualizados nas transações selecionadas; os campos não marcados NÃO devem ser tocados (evite sobrescrever com valor vazio).
+- Ao confirmar, faça um update em lote (uma chamada eficiente ao Supabase, ex: .update({...}).in('id', selectedIds), não um loop de N chamadas individuais) apenas nos campos marcados, para as transações selecionadas.
+- Depois de aplicar, limpe a seleção e mostre uma confirmação (ex: toast "X transações atualizadas").
+- Trave a subcategoria da mesma forma que no formulário normal: se o usuário alterar a categoria em massa, a subcategoria só deve ser aplicada em conjunto se ele também marcar para alterá-la (evite subcategoria de uma categoria diferente da nova categoria escolhida).
+
+2. MESMA FUNCIONALIDADE EM RECORRENTES
+- A tabela de Recorrentes (src/pages/Scheduled.tsx) ainda não tem seleção por checkbox nenhuma. Adicione a mesma UI de seleção (checkbox por linha + checkbox "selecionar todas" no cabeçalho) e a mesma barra de ações em massa (Excluir selecionadas + Editar selecionadas), reaproveitando o componente de edição em massa do item 1 adaptado para os campos de recorrência (Categoria, Subcategoria, Conta bancária, Frequência, Ativo).
+
+3. FORMULÁRIOS MAIS RETANGULARES, SEM BARRA DE SCROLL
+- Em components/TransactionFormDialog.tsx, components/ScheduledFormDialog.tsx e components/TransferFormDialog.tsx: remova a limitação de altura com scroll (hoje `max-h-[90vh] overflow-y-auto` no DialogContent) organizando os campos em um layout de 2 colunas mais largo (ex: sm:max-w-[640px] a 700px) que caiba numa tela sem precisar rolar, mesmo com todos os campos visíveis (incluindo o campo de recorrência e o novo campo de comentário do item 4). Se em telas menores (mobile) o scroll for inevitável, tudo bem manter lá, mas em desktop o objetivo é caber sem rolagem.
+
+4. CAMPO DE COMENTÁRIO/OBSERVAÇÃO
+- O campo `notes` já existe no banco de dados e no schema do formulário (zod), mas não tem nenhum input visível na UI. Adicione um campo pequeno (Textarea de poucas linhas, ex: 2 linhas, placeholder "Observação (opcional)") no final do formulário de Transação, Recorrência e Transferência, conectado ao campo `notes` já existente — sem precisar mudar nada no banco.
+
+5. CLICAR NA LINHA DA TABELA ABRE EDIÇÃO DIRETO
+- Em Transactions.tsx e Scheduled.tsx, torne a linha inteira da tabela clicável para abrir o formulário de edição (mesmo comportamento do botão de lápis/editar hoje), MAS com cuidado para não disparar a edição quando o clique for:
+  - No checkbox de seleção da linha
+  - Em qualquer botão da coluna de Ações (duplicar, alternar status, editar, excluir) — use e.stopPropagation() nesses botões para não conflitar com o clique na linha.
+- Adicione um cursor-pointer e um hover sutil (ex: bg-muted/50) na linha para indicar visualmente que ela é clicável.
+
+IMPORTANTE:
+- Não quebre a seleção em massa existente, os filtros, nem os cálculos de Dashboard/DRE/Relatórios ajustados anteriormente.
+- Teste edição em massa com transações de tipos diferentes (Pago/Pendente, com/sem cartão) selecionadas ao mesmo tempo, garantindo que nenhum dado seja apagado indevidamente.
+- Rode pnpm run typecheck ao final e liste os arquivos criados/alterados.

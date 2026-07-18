@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
@@ -419,7 +420,7 @@ export const TransactionFormDialog = ({
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full sm:max-w-[640px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="w-full sm:max-w-[700px]">
         <DialogHeader>
           <DialogTitle>{dialogTitle}</DialogTitle>
         </DialogHeader>
@@ -955,6 +956,26 @@ export const TransactionFormDialog = ({
                   )} />
                 </>
               )}
+
+              {/* ════ OBSERVAÇÃO ══════════════════════════════════════════ */}
+              <FormField control={form.control} name="notes" render={({ field }) => (
+                <FormItem className="col-span-2">
+                  <FormLabel>
+                    Observação{' '}
+                    <span className="text-muted-foreground font-normal">(opcional)</span>
+                  </FormLabel>
+                  <FormControl>
+                    <Textarea
+                      placeholder="Observação (opcional)"
+                      rows={2}
+                      className="resize-none"
+                      {...field}
+                      value={field.value || ''}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
             </div>
 
             <DialogFooter className="pt-2">
