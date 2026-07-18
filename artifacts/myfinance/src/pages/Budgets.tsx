@@ -397,7 +397,7 @@ export const Budgets = () => {
       const month = budget.recurrence === 'mensal' ? currentMonthPrefix : (budget.referenceMonth ?? '');
       if (month) {
         spent = transactions
-          .filter(t => t.type === 'expense' && t.categoryId === budget.categoryId && t.date.startsWith(month))
+          .filter(t => t.type === 'expense' && t.categoryId === budget.categoryId && t.date.startsWith(month) && !t.isBalanceAdjustment)
           .reduce((s, t) => s + t.amount, 0);
       }
       const pct = budget.amount > 0 ? Math.round((spent / budget.amount) * 100) : 0;

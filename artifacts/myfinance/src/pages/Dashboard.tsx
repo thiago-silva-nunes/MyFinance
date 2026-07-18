@@ -107,8 +107,9 @@ export const Dashboard = () => {
     topCategories, recentTransactions, upcomingScheduled,
   } = useMemo(() => {
     // Use direct string comparison to avoid timezone issues with new Date()
+    // Exclude balance-adjustment transactions from P&L — they affect bank balance only.
     const periodTxs = transactions.filter(t =>
-      t.date >= range.start && t.date <= range.end && t.status === 'paid',
+      t.date >= range.start && t.date <= range.end && t.status === 'paid' && !t.isBalanceAdjustment,
     );
 
     let income = 0, expense = 0;
@@ -219,7 +220,8 @@ export const Dashboard = () => {
             t.type === 'expense' &&
             t.categoryId === b.categoryId &&
             (t.status === 'paid' || t.status === 'pending') &&
-            t.date.startsWith(monthPrefix),
+            t.date.startsWith(monthPrefix) &&
+            !t.isBalanceAdjustment,
           )
           .reduce((s, t) => s + t.amount, 0);
         const pct = b.amount > 0 ? Math.round((spent / b.amount) * 100) : 0;

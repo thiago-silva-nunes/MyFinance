@@ -184,10 +184,12 @@ function mapTxRow(row: Record<string, unknown>): Transaction {
     installmentTotal: (row as any).installment_total ?? undefined,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     dreGroupOverride: (row as any).dre_group_override ?? undefined,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    isBalanceAdjustment: (row as any).is_balance_adjustment === true ? true : undefined,
   };
 }
 
-const TX_SELECT = 'id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, installment_group_id, installment_number, installment_total, dre_group_override';
+const TX_SELECT = 'id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, installment_group_id, installment_number, installment_total, dre_group_override, is_balance_adjustment';
 
 // ─── Settings (localStorage) ──────────────────────────────────────────────────
 
@@ -395,6 +397,7 @@ export const dataService = {
         bank_id: tx.bankId ?? null,
         reference_month: referenceMonth,
         dre_group_override: tx.dreGroupOverride ?? null,
+        is_balance_adjustment: tx.isBalanceAdjustment ?? false,
       })
       .select(TX_SELECT)
       .single();

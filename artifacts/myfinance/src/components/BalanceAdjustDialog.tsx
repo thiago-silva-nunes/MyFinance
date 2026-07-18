@@ -81,6 +81,7 @@ export function BalanceAdjustDialog({ open, onOpenChange, bank, currentBalance }
         date: todayStr,
         status: 'paid',
         bankId: bank.id,
+        isBalanceAdjustment: true,
       });
 
       toast.success('Ajuste de saldo registrado!');

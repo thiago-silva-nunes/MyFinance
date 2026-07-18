@@ -376,6 +376,9 @@ export const Transactions = () => {
                               ({t.installmentNumber}/{t.installmentTotal})
                             </span>
                           )}
+                          {t.isBalanceAdjustment && (
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 shrink-0">Ajuste</Badge>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>

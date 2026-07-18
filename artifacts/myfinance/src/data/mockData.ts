@@ -33,6 +33,7 @@ export interface Transaction {
   installmentNumber?: number;  // 1-indexed position (e.g. 2 in a 3x purchase)
   installmentTotal?: number;   // total installment count (e.g. 3 in a 3x purchase)
   dreGroupOverride?: string;   // per-transaction DRE classification override (nullable)
+  isBalanceAdjustment?: boolean; // true → affects bank balance only, excluded from P&L / DRE / Reports / Budgets
 }
 
 export interface ScheduledTransaction {

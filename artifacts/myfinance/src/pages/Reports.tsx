@@ -32,13 +32,16 @@ export const Reports = () => {
     expensesByGroup,
     balanceOverTime
   } = useMemo(() => {
-    // Process transactions (paid only)
+    // Process transactions (paid only).
+    // Balance-adjustment transactions affect bank balance but not P&L — exclude from
+    // Receitas/Despesas charts. Keep them in balanceOverTime (they change real account balance).
     const paidTxs = transactions.filter(t => t.status === 'paid');
+    const paidNonAdjTxs = paidTxs.filter(t => !t.isBalanceAdjustment);
 
-    // Group by month
+    // Group by month (excluding adjustments so they don't inflate Receitas/Despesas bars)
     const monthlyMap: Record<string, { income: number, expense: number, name: string }> = {};
 
-    paidTxs.forEach(t => {
+    paidNonAdjTxs.forEach(t => {
       const d = parseLocalDate(t.date);
       const monthYear = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       const monthName = d.toLocaleString('pt-BR', { month: 'short', year: '2-digit' });
@@ -61,19 +64,29 @@ export const Reports = () => {
       Despesas: monthlyMap[key].expense
     }));
 
-    // Balance over time (accumulative)
+    // Balance over time (accumulative) — INCLUDES balance-adjustment transactions so the
+    // running balance reflects actual account reconciliation, not just P&L deltas.
+    const allPaidMonthlyMap: Record<string, { income: number; expense: number; name: string }> = {};
+    paidTxs.forEach(t => {
+      const d = parseLocalDate(t.date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      if (!allPaidMonthlyMap[key]) {
+        allPaidMonthlyMap[key] = { income: 0, expense: 0, name: d.toLocaleString('pt-BR', { month: 'short', year: '2-digit' }) };
+      }
+      if (t.type === 'income') allPaidMonthlyMap[key].income += t.amount;
+      else allPaidMonthlyMap[key].expense += t.amount;
+    });
+    const allSortedMonths = Object.keys(allPaidMonthlyMap).sort();
     let cumulative = 0;
-    const balanceOverTime = sortedMonths.map(key => {
-      cumulative += (monthlyMap[key].income - monthlyMap[key].expense);
-      return {
-        name: monthlyMap[key].name,
-        Saldo: cumulative
-      };
+    const balanceOverTime = allSortedMonths.map(key => {
+      cumulative += (allPaidMonthlyMap[key].income - allPaidMonthlyMap[key].expense);
+      return { name: allPaidMonthlyMap[key].name, Saldo: cumulative };
     });
 
-    // Expenses for pie chart — current month, optionally filtered by category
+    // Expenses for pie chart — current month, optionally filtered by category.
+    // Exclude balance-adjustment transactions from expense breakdown.
     const now = new Date();
-    let currentMonthTxs = paidTxs.filter(t => {
+    let currentMonthTxs = paidNonAdjTxs.filter(t => {
       const d = parseLocalDate(t.date);
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear() && t.type === 'expense';
     });

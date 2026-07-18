@@ -1,0 +1,23 @@
+A funcionalidade de "Ajustar saldo" que implementamos está funcionando para corrigir o saldo da conta, mas a transação de ajuste está sendo contada como receita/despesa normal nos cálculos de Resultado do Mês, DRE e Relatórios — distorcendo os números do período. Preciso que ela impacte SOMENTE o saldo da conta, exatamente como o saldo inicial (initial_balance) se comporta hoje, sem entrar nos totais de receita/despesa de período nenhum.
+
+1. MARCAR TRANSAÇÕES DE AJUSTE COMO ESPECIAIS NO BANCO
+- Adicione uma nova coluna na tabela transactions: `is_balance_adjustment boolean not null default false` (crie uma migração idempotente, ex: supabase/schema_v8_balance_adjustment.sql, usando `alter table transactions add column if not exists is_balance_adjustment boolean not null default false`).
+- No fluxo de "Ajustar saldo" (dataService/FinanceContext), ao criar a transação de ajuste, defina `is_balance_adjustment: true`.
+
+2. EXCLUIR ESSAS TRANSAÇÕES DE TODOS OS CÁLCULOS DE RESULTADO DE PERÍODO
+Ajuste os cálculos para IGNORAR transações com is_balance_adjustment = true nos seguintes lugares (mas sem removê-las do banco nem escondê-las da lista de Transações):
+- Dashboard: cards "Resultado do Mês", "Receitas", "Despesas" e o mini-card "DRE — Este mês".
+- Página DRE completa (/dre): Receita Bruta, Deduções, Despesas (Fixas/Variáveis/Financeiras), Resultado Líquido, Margem líquida.
+- Página Relatórios: gráficos "Receitas vs Despesas", "Despesas por Categoria" e "Evolução do Saldo" (nesse último, CUIDADO: o saldo da conta em si deve continuar refletindo o ajuste — só o "resultado do período" que não deve contar o ajuste como entrada/saída do dia).
+- Página Orçamentos: gastos por categoria não devem contar o ajuste (mesmo que a categoria "Ajustes" nunca tenha orçamento vinculado, garanta isso por segurança).
+
+3. MANTER O IMPACTO NO SALDO DA CONTA
+- O cálculo de saldo de cada conta bancária (Dashboard "Contas Bancárias", saldo usado no "Ajustar saldo" em si) DEVE continuar somando `initial_balance` + todas as transações vinculadas àquela conta, INCLUINDO as marcadas como is_balance_adjustment. Ou seja, o ajuste continua corrigindo o saldo normalmente — só não deve mais aparecer como "receita" ou "despesa" do mês.
+
+4. TRANSAÇÕES DE AJUSTE JÁ CRIADAS ANTERIORMENTE
+- Como já usei essa funcionalidade e gerei um ajuste antes dessa correção existir, preciso migrar os dados existentes: identifique transações já criadas pela categoria "Ajustes" (a categoria criada automaticamente pela funcionalidade anterior) e rode um UPDATE para marcá-las como is_balance_adjustment = true, para que o Dashboard/DRE já fiquem corretos sem eu precisar refazer o ajuste manualmente.
+
+IMPORTANTE:
+- Não altere o cálculo do saldo das contas bancárias (deve continuar incluindo o ajuste).
+- Não esconda a transação de ajuste da lista de Transações — ela continua visível, editável e excluível normalmente, só marcada visualmente talvez com uma badge sutil "Ajuste" ao lado da categoria (opcional, mas ajuda a diferenciar).
+- Rode pnpm run typecheck ao final e me diga quantas transações foram atualizadas na migração do item 4.

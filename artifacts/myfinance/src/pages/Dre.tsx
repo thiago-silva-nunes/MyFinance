@@ -135,7 +135,8 @@ function buildDRE(
   start: string,
   end: string
 ): DREGroup[] {
-  const inRange = transactions.filter(tx => tx.date >= start && tx.date <= end);
+  // Exclude balance-adjustment transactions from DRE — they affect bank balance only, not P&L.
+  const inRange = transactions.filter(tx => tx.date >= start && tx.date <= end && !tx.isBalanceAdjustment);
   const catMap = new Map(categories.map(c => [c.id, c]));
   const subMap = new Map(subcategories.map(s => [s.id, s]));
 
