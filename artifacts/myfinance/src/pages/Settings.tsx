@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Moon, Sun, DollarSign, Database, LogOut, Loader2, Cloud, Bell, BellOff, BellRing, Plus, Edit2, Trash2, Building2, TrendingUp, TrendingDown, SlidersHorizontal } from 'lucide-react';
+import { Moon, Sun, DollarSign, Database, LogOut, Loader2, Cloud, Bell, BellOff, BellRing, Plus, Edit2, Trash2, Building2, TrendingUp, TrendingDown, SlidersHorizontal, FileUp } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import { toast } from 'sonner';
 import {
@@ -20,6 +20,7 @@ import { Categories } from '@/pages/Categories';
 import { Cards } from '@/pages/Cards';
 import { BankFormDialog } from '@/components/BankFormDialog';
 import { BalanceAdjustDialog } from '@/components/BalanceAdjustDialog';
+import { ImportDataDialog } from '@/components/ImportDataDialog';
 import { BankAccount } from '@/data/mockData';
 import { getIcon } from '@/components/IconMap';
 
@@ -158,6 +159,7 @@ export const Settings = () => {
   const { settings, updateSettings, loadSampleData, scheduled, invoices, cards } = useFinance();
   const { user, signOut } = useAuth();
   const [seedLoading, setSeedLoading]     = useState(false);
+  const [importOpen, setImportOpen]       = useState(false);
   const [notifPermission, setNotifPermission] = useState<string>(() => getNotificationPermission());
   const [notifLoading, setNotifLoading]   = useState(false);
 
@@ -365,25 +367,45 @@ export const Settings = () => {
           <Card>
             <CardHeader>
               <CardTitle>Dados</CardTitle>
-              <CardDescription>Importe dados de exemplo para explorar o app.</CardDescription>
+              <CardDescription>Importe dados de exemplo ou migre lançamentos de outro sistema.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="bg-muted/50 border rounded-lg p-4">
+              {/* Importar via planilha */}
+              <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
                 <div className="flex items-start gap-3">
-                  <Database className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
+                  <FileUp className="w-5 h-5 text-primary shrink-0 mt-0.5" />
                   <div>
-                    <h4 className="font-medium text-sm mb-1">Dados de exemplo</h4>
+                    <h4 className="font-medium text-sm mb-1">Importar lançamentos via planilha</h4>
                     <p className="text-sm text-muted-foreground">
-                      Carrega categorias, lançamentos e recorrentes de exemplo na sua conta.
+                      Baixe o modelo Excel, preencha com seus dados e faça o upload.
+                      Categorias, subcategorias e contas inexistentes são criadas automaticamente.
                     </p>
                   </div>
                 </div>
               </div>
-              <Button variant="outline" onClick={handleSeedData} disabled={seedLoading} className="w-full">
-                {seedLoading
-                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Carregando...</>
-                  : <><Database className="w-4 h-4 mr-2" /> Carregar dados de exemplo</>}
+              <Button onClick={() => setImportOpen(true)} className="w-full gap-2">
+                <FileUp className="w-4 h-4" />
+                Importar planilha de lançamentos
               </Button>
+
+              <div className="border-t pt-4">
+                <div className="bg-muted/50 border rounded-lg p-4 mb-3">
+                  <div className="flex items-start gap-3">
+                    <Database className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-medium text-sm mb-1">Dados de exemplo</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Carrega categorias, lançamentos e recorrentes de exemplo na sua conta.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <Button variant="outline" onClick={handleSeedData} disabled={seedLoading} className="w-full">
+                  {seedLoading
+                    ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Carregando...</>
+                    : <><Database className="w-4 h-4 mr-2" /> Carregar dados de exemplo</>}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -403,6 +425,8 @@ export const Settings = () => {
           <BanksPanel />
         </TabsContent>
       </Tabs>
+
+      <ImportDataDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 };
