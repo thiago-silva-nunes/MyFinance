@@ -13,11 +13,11 @@ import { ScheduledTransaction } from '@/data/mockData';
 import { Plus, Edit2, Trash2, RefreshCw, BarChart2, CheckCircle2, Clock, AlertCircle, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'wouter';
-import { getCurrentYearMonth, getExpectedReferenceMonth } from '@/services/recurringEngine';
+import { getCurrentYearMonth, getExpectedReferenceMonth, getOverdueTransactions, getTodayStr } from '@/services/recurringEngine';
 
 export const Scheduled = () => {
   const { scheduled, categories, transactions, deleteScheduled, updateScheduled,
-    generatePendingTransaction, regeneratePendingTransaction } = useFinance();
+    updateTransaction, generatePendingTransaction, regeneratePendingTransaction } = useFinance();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingScheduled, setEditingScheduled] = useState<ScheduledTransaction | null>(null);
   const [regenerating, setRegenerating] = useState<string | null>(null);
@@ -50,18 +50,23 @@ export const Scheduled = () => {
     setSelectedIds(new Set());
   };
 
-  // Mapa: scheduledId → status da transação do período atual
+  // Mapa: scheduledId → { status, tx? } da transação do período atual
   const currentPeriodStatus = useMemo(() => {
-    const currentMonth = getCurrentYearMonth();
-    const map: Record<string, 'paid' | 'pending' | 'none'> = {};
+    const map: Record<string, { status: 'paid' | 'pending' | 'none'; tx?: (typeof transactions)[number] }> = {};
     for (const s of scheduled) {
       const refMonth = getExpectedReferenceMonth(s);
-      if (!refMonth) { map[s.id] = 'none'; continue; }
+      if (!refMonth) { map[s.id] = { status: 'none' }; continue; }
       const tx = transactions.find(t => t.scheduledId === s.id && t.referenceMonth === refMonth);
-      map[s.id] = tx ? tx.status : 'none';
+      map[s.id] = tx ? { status: tx.status as 'paid' | 'pending', tx } : { status: 'none' };
     }
     return map;
   }, [scheduled, transactions]);
+
+  // Transações pendentes de meses anteriores (atrasadas)
+  const overdueTransactions = useMemo(
+    () => getOverdueTransactions(scheduled, transactions),
+    [scheduled, transactions],
+  );
 
   const handleEdit = (item: ScheduledTransaction) => {
     setEditingScheduled(item);
@@ -88,19 +93,25 @@ export const Scheduled = () => {
   const handleRegenerate = async (item: ScheduledTransaction) => {
     setRegenerating(item.id);
     try {
-      const status = currentPeriodStatus[item.id];
-      let tx;
+      const { status } = currentPeriodStatus[item.id] ?? { status: 'none' };
       if (status === 'none') {
-        tx = await generatePendingTransaction(item);
+        const tx = await generatePendingTransaction(item);
+        if (tx) {
+          toast.success('Transação pendente gerada com sucesso!');
+        } else {
+          toast.info('Não foi possível gerar transação para este período.');
+        }
       } else {
-        tx = await regeneratePendingTransaction(item);
-      }
-      if (tx) {
-        toast.success('Transação pendente gerada com sucesso!');
-      } else if (status === 'pending') {
-        toast.info('Já existe uma transação pendente para este período.');
-      } else {
-        toast.info('Nova transação pendente criada para este período.');
+        const { transaction, reason } = await regeneratePendingTransaction(item);
+        if (reason === 'already_paid') {
+          toast.info('Este período já foi pago — nada para regenerar.');
+        } else if (reason === 'already_pending') {
+          toast.info('Já existe uma transação pendente para este período.');
+        } else if (transaction) {
+          toast.success('Transação pendente gerada com sucesso!');
+        } else {
+          toast.info('Não foi possível regenerar a transação.');
+        }
       }
     } catch {
       toast.error('Falha ao gerar transação pendente.');
@@ -118,17 +129,25 @@ export const Scheduled = () => {
   };
 
   const PeriodBadge = ({ scheduledId }: { scheduledId: string }) => {
-    const status = currentPeriodStatus[scheduledId];
+    const today = getTodayStr();
+    const { status, tx } = currentPeriodStatus[scheduledId] ?? { status: 'none' as const };
     if (status === 'paid') return (
       <Badge variant="outline" className="text-success border-success/30 bg-success/10 gap-1 whitespace-nowrap">
         <CheckCircle2 className="w-3 h-3" /> Pago
       </Badge>
     );
-    if (status === 'pending') return (
-      <Badge variant="outline" className="text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-900/20 gap-1 whitespace-nowrap">
-        <Clock className="w-3 h-3" /> Pendente
-      </Badge>
-    );
+    if (status === 'pending') {
+      if (tx && tx.date < today) return (
+        <Badge variant="destructive" className="gap-1 whitespace-nowrap">
+          <AlertCircle className="w-3 h-3" /> Atrasado
+        </Badge>
+      );
+      return (
+        <Badge variant="outline" className="text-amber-600 border-amber-300 bg-amber-50 dark:bg-amber-900/20 gap-1 whitespace-nowrap">
+          <Clock className="w-3 h-3" /> Pendente
+        </Badge>
+      );
+    }
     return (
       <Badge variant="outline" className="text-muted-foreground gap-1 whitespace-nowrap">
         <AlertCircle className="w-3 h-3" /> Não gerado
@@ -175,6 +194,49 @@ export const Scheduled = () => {
               <Trash2 className="w-3.5 h-3.5 mr-1.5" />
               Excluir selecionadas
             </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Alerta de contas atrasadas ─────────────────────────────────────── */}
+      {overdueTransactions.length > 0 && (
+        <div className="border border-destructive/30 bg-destructive/5 rounded-xl p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
+            <h3 className="font-semibold text-destructive">
+              Você tem {overdueTransactions.length} conta{overdueTransactions.length !== 1 ? 's' : ''} atrasada{overdueTransactions.length !== 1 ? 's' : ''} somando{' '}
+              {formatCurrency(overdueTransactions.reduce((s, t) => s + t.amount, 0))}
+            </h3>
+          </div>
+          <div className="divide-y divide-destructive/10">
+            {overdueTransactions.map(tx => {
+              const cat = categories.find(c => c.id === tx.categoryId);
+              return (
+                <div key={tx.id} className="flex items-center justify-between py-2 gap-3 flex-wrap">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm truncate">{tx.description}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {cat?.name ?? '—'} · vence {formatShortDate(tx.date)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <span className="font-semibold text-sm text-destructive">
+                      {formatCurrency(tx.amount)}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-destructive/40 text-destructive hover:bg-destructive/10 whitespace-nowrap"
+                      onClick={() => updateTransaction(tx.id, { status: 'paid' })}
+                    >
+                      Marcar como paga
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

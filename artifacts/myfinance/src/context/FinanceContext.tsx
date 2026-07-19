@@ -9,6 +9,7 @@ import {
   generatePendingIfNeeded,
   regeneratePendingForScheduled,
   alreadyCheckedThisMonth,
+  type RegenerateResult,
 } from '../services/recurringEngine';
 
 // ─── Query Keys ──────────────────────────────────────────────────────────────
@@ -52,7 +53,7 @@ interface FinanceContextType {
   /** True when the current transaction set is at the fetch limit — more may exist. */
   hasMoreTransactions: boolean;
   generatePendingTransaction: (scheduled: ScheduledTransaction) => Promise<Transaction | null>;
-  regeneratePendingTransaction: (scheduled: ScheduledTransaction) => Promise<Transaction | null>;
+  regeneratePendingTransaction: (scheduled: ScheduledTransaction) => Promise<RegenerateResult>;
 
   addCategory: (data: Omit<Category, 'id'>) => Promise<void>;
   updateCategory: (id: string, data: Partial<Category>) => Promise<void>;
@@ -385,17 +386,17 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const regeneratePendingTransaction = async (sched: ScheduledTransaction): Promise<Transaction | null> => {
-    if (!user) return null;
+  const regeneratePendingTransaction = async (sched: ScheduledTransaction): Promise<RegenerateResult> => {
+    if (!user) return { transaction: null };
     try {
-      const tx = await regeneratePendingForScheduled(user.id, sched);
-      if (tx) {
+      const result = await regeneratePendingForScheduled(user.id, sched);
+      if (result.transaction) {
         await queryClient.invalidateQueries({ queryKey: QK.transactions() });
       }
-      return tx;
+      return result;
     } catch (e) {
       console.warn('[FinanceContext] Falha ao regenerar transação pendente:', e);
-      return null;
+      return { transaction: null };
     }
   };
 

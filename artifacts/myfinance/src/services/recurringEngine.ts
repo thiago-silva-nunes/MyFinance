@@ -186,47 +186,54 @@ export async function generatePendingIfNeeded(
   };
 }
 
+export type RegenerateResult = {
+  transaction: Transaction | null;
+  reason?: 'already_paid' | 'already_pending';
+};
+
 /**
- * Força a regeneração de uma transação pendente para o período atual,
- * mesmo que já exista uma paga (cria nova pendente apenas se não houver outra pendente).
- * Usado pelo botão "Regenerar" na tela de Recorrentes.
+ * Força a regeneração de uma transação pendente para o período atual.
+ * Retorna um objeto com { transaction, reason } para que o chamador possa
+ * distinguir entre "já pago", "já pendente" e "gerado com sucesso".
  *
  * Deduplication strategy:
- * - Queries explicitly for status='pending' with limit(1) — avoids maybeSingle() error
- *   when multiple rows (paid + pending) exist for the same period.
- * - Only inserts a new pending row when no pending row is found.
+ * - If ANY paid transaction exists for this scheduledId + referenceMonth → reason: 'already_paid'
+ * - If a pending transaction already exists → reason: 'already_pending'
+ * - Otherwise inserts a new pending row.
  */
 export async function regeneratePendingForScheduled(
   userId: string,
   scheduled: ScheduledTransaction,
-): Promise<Transaction | null> {
+): Promise<RegenerateResult> {
   const asOf = new Date();
   const targetRefMonth = getExpectedReferenceMonth(scheduled, asOf);
-  if (!targetRefMonth) return null;
+  if (!targetRefMonth) return { transaction: null };
 
-  // Check specifically for an existing PENDING row for this period.
-  // Using limit(1) instead of maybeSingle() to safely handle multiple rows
-  // (e.g. one paid + one pending) without throwing a "multiple rows" error.
-  const { data: existingPending, error: checkErr } = await supabase
+  // Check for ANY existing transaction (paid or pending) for this period.
+  const { data: existing, error: checkErr } = await supabase
     .from('transactions')
-    .select('id')
+    .select('id, status')
     .eq('scheduled_id', scheduled.id)
     .eq('reference_month', targetRefMonth)
-    .eq('status', 'pending')
-    .limit(1);
+    .limit(2); // limit(2) to detect both paid and pending rows cheaply
 
   if (checkErr) {
-    console.warn('[recurringEngine] Erro ao verificar pendentes existentes:', checkErr);
-    return null;
+    console.warn('[recurringEngine] Erro ao verificar transações existentes:', checkErr);
+    return { transaction: null };
   }
 
-  if (existingPending && existingPending.length > 0) {
-    // Already has a pending transaction for this period — do not duplicate.
-    return null;
+  if (existing && existing.length > 0) {
+    const hasPaid    = existing.some(r => r.status === 'paid');
+    const hasPending = existing.some(r => r.status === 'pending');
+
+    // If any paid row exists, refuse to create a duplicate.
+    if (hasPaid) return { transaction: null, reason: 'already_paid' };
+
+    // If only a pending row exists, also refuse.
+    if (hasPending) return { transaction: null, reason: 'already_pending' };
   }
 
-  // No pending found. Create a new one (even if a paid row already exists —
-  // user explicitly wants to re-generate for this period).
+  // No blocking row found. Insert a new pending transaction.
   const txDate = getTransactionDateForPeriod(scheduled, targetRefMonth);
 
   const { data, error } = await supabase
@@ -251,14 +258,16 @@ export async function regeneratePendingForScheduled(
     .single();
 
   if (error) {
-    // 23505 = unique_violation — race condition: another process inserted a pending row
+    // 23505 = unique_violation — race condition: another process inserted a row
     // between our check and our insert. Treat as "already exists".
-    if ((error as { code?: string }).code === '23505') return null;
+    if ((error as { code?: string }).code === '23505') {
+      return { transaction: null, reason: 'already_pending' };
+    }
     console.warn('[recurringEngine] Falha ao regenerar transação pendente:', error);
-    return null;
+    return { transaction: null };
   }
 
-  return {
+  const tx: Transaction = {
     id: data.id,
     description: data.description,
     amount: Number(data.amount),
@@ -272,6 +281,32 @@ export async function regeneratePendingForScheduled(
     referenceMonth: data.reference_month ?? undefined,
     dreGroupOverride: (data as Record<string, unknown>).dre_group_override as string | undefined ?? undefined,
   };
+  return { transaction: tx };
+}
+
+/**
+ * Retorna as transações pendentes vinculadas a recorrências ativas cujas datas
+ * já passaram (atrasadas), ordenadas da mais antiga para a mais nova.
+ * Opera apenas sobre os arrays em memória — sem acesso ao banco.
+ */
+export function getOverdueTransactions(
+  scheduledList: ScheduledTransaction[],
+  transactions: Transaction[],
+): Transaction[] {
+  const today = getTodayStr();
+  const activeScheduledIds = new Set(
+    scheduledList.filter(s => s.active).map(s => s.id),
+  );
+
+  return transactions
+    .filter(
+      t =>
+        t.status === 'pending' &&
+        t.scheduledId != null &&
+        activeScheduledIds.has(t.scheduledId) &&
+        t.date < today,
+    )
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /**
