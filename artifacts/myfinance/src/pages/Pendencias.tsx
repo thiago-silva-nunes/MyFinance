@@ -23,12 +23,6 @@ function getTodayStr() {
   return new Date().toISOString().split('T')[0];
 }
 
-function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr + 'T00:00:00');
-  d.setDate(d.getDate() + days);
-  return d.toISOString().split('T')[0];
-}
-
 function getCurrentMonthPrefix(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -45,12 +39,12 @@ export const Pendencias = () => {
   const { hideValues } = usePrivacy();
 
   const [receiveFilter, setReceiveFilter] = useState<'month' | 'all'>('month');
+  const [dueFilter, setDueFilter] = useState<'month' | 'all'>('month');
   const [confirmTarget, setConfirmTarget] = useState<Transaction | null>(null);
 
   const mask = (v: number) => hideValues ? 'R$ ••••••' : formatCurrency(v);
 
   const today = getTodayStr();
-  const in7days = addDays(today, 7);
   const monthPrefix = getCurrentMonthPrefix();
   // Last calendar day of the current month as YYYY-MM-DD
   const endOfMonth = (() => {
@@ -71,9 +65,9 @@ export const Pendencias = () => {
       t => t.type === 'expense' && t.status === 'pending' && t.date < today,
     ).sort((a, b) => a.date.localeCompare(b.date)); // oldest first
 
-    // Pending expense within next 7 days (inclusive today)
+    // All upcoming pending expenses from today onward (no upper bound)
     const soon = transactions.filter(
-      t => t.type === 'expense' && t.status === 'pending' && t.date >= today && t.date <= in7days,
+      t => t.type === 'expense' && t.status === 'pending' && t.date >= today,
     ).sort((a, b) => a.date.localeCompare(b.date));
 
     // Invoices with status 'closed' or 'overdue' (not paid)
@@ -117,7 +111,7 @@ export const Pendencias = () => {
       projectionInvoicesSum: monthInvoiceSum,
       totalToReceive: sumIncome,
     };
-  }, [transactions, invoices, today, in7days, endOfMonth]);
+  }, [transactions, invoices, today, endOfMonth]);
 
   // Filtered income for the toggle (display only)
   const filteredIncome = useMemo(() => {
@@ -128,6 +122,12 @@ export const Pendencias = () => {
   }, [pendingIncome, receiveFilter, monthPrefix]);
 
   const filteredToReceive = filteredIncome.reduce((s, t) => s + t.amount, 0);
+
+  // Filtered upcoming expenses for the toggle ("Este mês" vs "Todos")
+  const filteredDueSoon = useMemo(() => {
+    if (dueFilter === 'month') return dueSoon.filter(t => t.date <= endOfMonth);
+    return dueSoon;
+  }, [dueSoon, dueFilter, endOfMonth]);
 
   // Real current balance = only paid transactions, bounded to today
   // (pending transactions are not yet in the bank — they're projected separately)
@@ -196,11 +196,11 @@ export const Pendencias = () => {
               {overdueExpenses.length > 0 && (
                 <span className="text-destructive font-medium">{overdueExpenses.length} vencida{overdueExpenses.length !== 1 ? 's' : ''}</span>
               )}
-              {overdueExpenses.length > 0 && (dueSoon.length > 0 || openInvoices.length > 0) && ' · '}
-              {dueSoon.length > 0 && `${dueSoon.length} a vencer`}
-              {dueSoon.length > 0 && openInvoices.length > 0 && ' · '}
+              {overdueExpenses.length > 0 && (filteredDueSoon.length > 0 || openInvoices.length > 0) && ' · '}
+              {filteredDueSoon.length > 0 && `${filteredDueSoon.length} a vencer`}
+              {filteredDueSoon.length > 0 && openInvoices.length > 0 && ' · '}
               {openInvoices.length > 0 && `${openInvoices.length} fatura${openInvoices.length !== 1 ? 's' : ''}`}
-              {overdueExpenses.length === 0 && dueSoon.length === 0 && openInvoices.length === 0 && 'Nenhuma pendência este mês'}
+              {overdueExpenses.length === 0 && filteredDueSoon.length === 0 && openInvoices.length === 0 && 'Nenhuma pendência este mês'}
             </p>
           </CardContent>
         </Card>
@@ -347,23 +347,34 @@ export const Pendencias = () => {
         )}
       </section>
 
-      {/* ── A vencer nos próximos 7 dias ─────────────────────────────────────── */}
+      {/* ── A vencer este mês ────────────────────────────────────────────────── */}
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <CalendarClock className="w-5 h-5 text-amber-500" />
-          <h2 className="font-semibold text-lg">A vencer nos próximos 7 dias</h2>
-          {dueSoon.length > 0 && (
-            <Badge className="ml-1 bg-amber-100 text-amber-700 border-amber-300">{dueSoon.length}</Badge>
+          <h2 className="font-semibold text-lg">A vencer este mês</h2>
+          {filteredDueSoon.length > 0 && (
+            <Badge className="ml-1 bg-amber-100 text-amber-700 border-amber-300">{filteredDueSoon.length}</Badge>
           )}
+          <div className="ml-auto flex items-center gap-2">
+            <Switch
+              id="due-section-toggle"
+              checked={dueFilter === 'month'}
+              onCheckedChange={v => setDueFilter(v ? 'month' : 'all')}
+              className="scale-75"
+            />
+            <Label htmlFor="due-section-toggle" className="text-xs text-muted-foreground cursor-pointer">
+              {dueFilter === 'month' ? 'Só este mês' : 'Tudo em aberto'}
+            </Label>
+          </div>
         </div>
 
-        {dueSoon.length === 0 ? (
+        {filteredDueSoon.length === 0 ? (
           <div className="text-sm text-muted-foreground bg-muted/40 rounded-xl px-5 py-6 text-center">
-            Nada vencendo nos próximos 7 dias.
+            Nada vencendo {dueFilter === 'month' ? 'este mês' : 'a partir de hoje'}.
           </div>
         ) : (
           <div className="bg-card border rounded-xl divide-y overflow-hidden shadow-sm">
-            {dueSoon.map(tx => (
+            {filteredDueSoon.map(tx => (
               <div key={tx.id} className="flex items-center justify-between px-4 py-3 gap-3 flex-wrap">
                 <div className="min-w-0 flex-1">
                   <p className="font-medium text-sm truncate">{tx.description}</p>

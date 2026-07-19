@@ -908,7 +908,7 @@ export const TransactionFormDialog = ({
                         <span className="text-muted-foreground font-normal">(opcional)</span>
                       </FormLabel>
                       <FormControl>
-                        <Input type="date" {...field} value={field.value || ''} />
+                        <DatePicker value={field.value || ''} onChange={field.onChange} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

@@ -1,0 +1,29 @@
+Preciso de 3 ajustes: um bug de filtro na tela de Pendências, uma revisão de design do calendário/date-picker, e uma análise geral de melhorias no código (especialmente Investimentos).
+1. BUG — "A vencer nos próximos 7 dias" deve filtrar pelo mês, não por 7 dias fixos
+No arquivo pages/Pendencias.tsx, a seção "A vencer nos próximos 7 dias" usa uma janela fixa de 7 dias (t.date >= today && t.date <= in7days, linha ~76). Troque essa lógica para considerar do dia de hoje até o fim do mês atual (mesma referência de endOfMonth que já é usada em outros cálculos da página, como monthExpenseSum), em vez da janela de 7 dias. Ou seja:
+
+Filtro correto: t.type === 'expense' && t.status === 'pending' && t.date >= today && t.date <= endOfMonth.
+Atualize também o título da seção de "A vencer nos próximos 7 dias" para algo que reflita a nova lógica, tipo "A vencer este mês" (mantendo o texto do estado vazio coerente, ex: "Nada vencendo este mês.").
+Verifique se essa mesma variável dueSoon/in7days é usada em outro lugar da página (badge de contagem, resumo no topo, dashboard) e ajuste todos os pontos para manter consistência — não deixe um lugar mostrando "7 dias" e outro mostrando "mês".
+Se fizer sentido, adicione um pequeno seletor (igual ao toggle "Só este mês" que já existe na seção "A receber") para o usuário escolher entre "Este mês" e "Todos" também nessa seção de despesas a vencer — avalie se vale a pena para manter consistência de UX com a seção de recebimentos.
+
+2. MELHORIA — Redesenhar o componente de calendário (date-picker)
+Os arquivos components/ui/date-picker.tsx e components/ui/calendar.tsx controlam a seleção de data usada nos formulários de Transação, Recorrência, etc. O visual atual está "feio"/pouco polido. Melhore:
+
+Revisar espaçamento, tamanho de fonte e alinhamento dos dias no grid do calendário, garantindo que fique visualmente limpo e alinhado à identidade visual do restante do app (cores, border-radius, sombras já usados nos outros componentes ui/* do projeto).
+Melhorar o destaque visual do dia selecionado e do dia atual (hoje), para ficarem claramente distintos um do outro.
+Melhorar hover/estado de foco dos dias para dar feedback visual claro ao navegar com mouse ou teclado.
+Verificar se o dropdown/popover do calendário abre com boa posição e não corta em telas menores (mobile).
+Manter a opção de digitar a data manualmente (input de texto) funcionando em conjunto com a seleção via calendário, se já existir esse comportamento híbrido no date-picker.tsx.
+Aplicar o mesmo componente/estilo em todos os lugares do app que usam <Input type="date"> cru em vez do DatePicker já criado (ex: linha 911 do TransactionFormDialog.tsx usa Input type="date" direto — avalie se deveria usar o DatePicker para manter consistência visual em 100% do app).
+
+3. REVISÃO GERAL — Análise de melhorias no código, com foco em Investimentos
+Faça uma revisão geral no código do projeto (estou anexando o zip completo) e me dê um relatório do que encontrar, com foco especial na página/módulo de Investimentos (pages/Investments.tsx) e nas demais áreas do site. Pontos a avaliar:
+
+Consistência de padrões já corrigidos em outras telas (ex: toggle Despesa/Receita com destaque correto, modo de ocultar valores, formatação de moeda) — verificar se Investments.tsx e outras páginas menos revisadas seguem os mesmos padrões ou ainda têm bugs semelhantes aos que já corrigimos alhures.
+Qualidade dos dados exibidos: gráficos de evolução de investimentos, rentabilidade, alocação por tipo de ativo — avaliar se os cálculos fazem sentido financeiro e se a apresentação está clara.
+Duplicação de lógica/código entre páginas que poderia ser centralizada em hooks ou funções utilitárias compartilhadas (ex: cálculo de saldo, formatação, máscaras de privacidade).
+Qualidade geral de UX: loading states, mensagens de erro, estados vazios (empty states) em todas as telas, não só em Investimentos.
+Qualquer bug funcional que encontrar durante a revisão, mesmo que eu não tenha reportado.
+
+Me entregue um resumo das descobertas antes de aplicar mudanças grandes em Investimentos, para eu poder priorizar o que for mais importante corrigir primeiro
