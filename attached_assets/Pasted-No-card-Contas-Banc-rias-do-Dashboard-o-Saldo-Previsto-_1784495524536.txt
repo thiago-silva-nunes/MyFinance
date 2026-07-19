@@ -1,0 +1,23 @@
+No card "Contas Bancárias" do Dashboard, o "Saldo Previsto" está incorreto: despesas recorrentes que já venceram e não foram pagas (pendências atrasadas) não estão sendo somadas na previsão de desconto da conta bancária vinculada. Ou seja, a previsão está ignorando exatamente as pendências mais urgentes — as que já passaram da data e ainda vão ser descontadas quando forem pagas.
+1. Diagnóstico primeiro
+Antes de corrigir, confirme comigo:
+
+O filtro usado para calcular o "Saldo Previsto" de cada conta está limitando as transações pendentes só para date >= today? Se sim, esse é o bug — pendências vencidas (date < today, status === 'pending') também precisam entrar na previsão, porque ainda vão ser pagas e vão sair daquela conta.
+As transações geradas automaticamente pelo motor de recorrência (services/recurringEngine.ts) estão realmente recebendo o bank_id da recorrência de origem? Confirme rodando uma query no Supabase comparando scheduled_transactions.bank_id das recorrências ativas vs. transactions.bank_id das transações pendentes geradas a partir delas (via scheduled_id) — se algum bank_id estiver nulo onde deveria ter valor, é aí que a previsão está "perdendo" a informação de qual conta será debitada.
+
+2. Corrija o filtro do Saldo Previsto para incluir vencidas + a vencer
+O cálculo do "Saldo Previsto" de cada conta deve somar todas as transações pendentes daquela conta (bankId), independente de já estarem vencidas ou ainda a vencer, desde que a data esteja até o fim do período selecionado no filtro do Dashboard. Ou seja, o filtro correto é:
+pendingInPeriod = transactions.filter(t =>
+  t.status === 'pending' &&
+  t.bankId === bank.id &&
+  t.date <= endOfSelectedPeriod   // sem exigir t.date >= today
+);
+Isso deve incluir tanto as pendências já vencidas (que aparecem em "Contas atrasadas" na tela de Pendências) quanto as a vencer dentro do período — reaproveite a mesma lógica de agregação já usada em Pendencias.tsx (que já trata vencidas + a vencer corretamente na seção "Total a pagar no mês"), aplicando-a por conta bancária individual aqui no Dashboard.
+3. Corrija a geração de recorrências para sempre propagar o bank_id
+Revise services/recurringEngine.ts (as três ocorrências onde ele monta o payload da transação gerada, com bank_id: scheduled.bankId ?? null) e confirme que scheduled.bankId está sendo lido corretamente do registro da recorrência salva no banco — se o formulário de recorrência salva o campo como bank_id (snake_case) mas o código do motor está lendo scheduled.bankId (camelCase) de um objeto que na verdade ainda está em snake_case (ou vice-versa, dependendo de como o mapeamento é feito ao buscar do Supabase), isso explicaria o bank_id vindo null mesmo quando a recorrência tem conta cadastrada. Corrija esse mapeamento se for o caso.
+4. Teste do fluxo completo
+
+Cadastre uma recorrência mensal vinculada a uma conta específica (ex: Bradesco), com data de vencimento já passada (para simular pendência vencida).
+Confirme que a transação pendente gerada tem o bank_id do Bradesco preenchido.
+Confirme que o "Saldo Previsto" do Bradesco no Dashboard já desconta esse valor, mesmo estando vencido.
+Confirme visualmente comparando com a tela de Pendências: a soma de "Contas atrasadas" + "A vencer este mês" das transações daquela conta deve bater com a diferença entre Saldo Previsto e Saldo Real do Bradesco no Dashboard.

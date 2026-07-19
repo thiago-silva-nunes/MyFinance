@@ -248,16 +248,17 @@ export const Dashboard = () => {
       const actual = computeBankBalanceAtDate(bank.id, bank, paidTxs, transfers, balanceSnapshots, today);
       balMap[bank.id] = actual;
 
-      // Projected: actual + pending transactions in (today, periodEnd] + future transfers in (today, periodEnd]
+      // Projected: actual + all pending transactions up to periodEnd (overdue AND upcoming)
+      // Note: transfers have no status — actual already counts transfers up to today,
+      // so only future transfers (date > today) are added here to avoid double-counting.
       let proj = actual;
       for (const t of transactions) {
         if (t.bankId !== bank.id || t.status !== 'pending') continue;
-        if (t.date <= today || t.date > periodEnd) continue;
+        if (t.date > periodEnd) continue; // include overdue (date <= today) + upcoming
         proj += t.type === 'income' ? t.amount : -t.amount;
       }
-      // Transfers have no status — treat future ones as scheduled
       for (const tr of transfers) {
-        if (tr.date <= today || tr.date > periodEnd) continue;
+        if (tr.date <= today || tr.date > periodEnd) continue; // future transfers only
         if (tr.fromBankId === bank.id) proj -= tr.amount;
         if (tr.toBankId === bank.id) proj += tr.amount;
       }
