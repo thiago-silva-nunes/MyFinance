@@ -1,0 +1,27 @@
+No card "Contas Bancárias" do Dashboard (pages/Dashboard.tsx, por volta da linha 240), o saldo exibido está incorreto: a chamada a computeBankBalanceAtDate está passando todas as transações (transactions), incluindo as pendentes, sem limitar por data — misturando saldo real com previsão. Isso já é feito corretamente em pages/Pendencias.tsx (linha 137), que usa paidTxs (apenas transações pagas) limitado a today.
+Preciso que o card "Contas Bancárias" do Dashboard passe a exibir dois valores por conta, lado a lado ou empilhados:
+1. Saldo Atual (real)
+
+Calcular usando apenas transações com status === 'paid', transfers já efetivadas, e balanceSnapshots, limitado até a data de hoje (atDate = today) — exatamente a mesma lógica já usada em Pendencias.tsx.
+Esse é o dinheiro que realmente está na conta agora, sem contar nada que ainda não aconteceu.
+
+2. Saldo Previsto (fim do período selecionado)
+
+Calcular partindo do Saldo Atual (item 1) e somando/subtraindo as transações pendentes (status === 'pending') daquela conta com data dentro do período atualmente selecionado no filtro do Dashboard (ex: até o fim do mês, se o filtro for "Este mês"; ou até o fim do período escolhido, se for outro).
+Incluir também transferências pendentes, se esse conceito existir no sistema (avaliar se transfers tem status pendente/efetivado — se não tiver, considerar todas as transferências já lançadas como certas, já que hoje parecem ser sempre imediatas).
+Rotular claramente como "Previsão [período]" (ex: "Previsão até 31/07") para não ser confundido com o saldo real.
+
+3. Exibição no card
+
+Para cada conta (Nubank, Bradesco, Flash, etc.), mostrar:
+
+Saldo atual em destaque (como já é hoje).
+Logo abaixo, em texto menor/secundário, a previsão: ex. "Previsão: R$ X até 31/07".
+
+
+No "Saldo total" do topo do card, mostrar também os dois valores: total atual (soma dos saldos atuais de todas as contas) e total previsto (soma das previsões).
+Se o saldo previsto for menor que o atual (ou negativo), destacar visualmente em vermelho/atenção, para o usuário perceber rapidamente que há mais saída do que entrada programada no período.
+Manter o texto explicativo abaixo do card, mas atualizado para refletir que agora existem dois números: algo como "Saldo atual · saldo previsto considera pendências do período selecionado".
+Respeitar o modo de ocultar valores (ícone de olho) em ambos os números.
+
+Depois de corrigir, teste: comparar o "Saldo Atual" mostrado no Dashboard com a soma manual das transações pagas de cada conta, para confirmar que bate; e verificar que o "Saldo Previsto" muda corretamente ao trocar o filtro de período do Dashboard (ex: de "Este mês" para "Próximos 3 meses").

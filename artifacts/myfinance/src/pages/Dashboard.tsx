@@ -234,15 +234,40 @@ export const Dashboard = () => {
       .slice(0, 3);
   }, [budgets, transactions, categories]);
 
-  // Bank balances — real-time (snapshot-aware: uses latest balance snapshot per bank if available)
-  const { bankBalances, totalBankBalance } = useMemo(() => {
-    const map: Record<string, number> = {};
+  // Bank balances — actual (paid txs only, bounded to today) + projected (actual + pending txs within period end)
+  const { bankBalances, bankProjections, totalBankBalance, totalBankProjection } = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const paidTxs = transactions.filter(t => t.status === 'paid');
+    const periodEnd = range.end;
+
+    const balMap: Record<string, number> = {};
+    const projMap: Record<string, number> = {};
+
     for (const bank of banks) {
-      map[bank.id] = computeBankBalanceAtDate(bank.id, bank, transactions, transfers, balanceSnapshots);
+      // Actual: only paid transactions, bounded to today
+      const actual = computeBankBalanceAtDate(bank.id, bank, paidTxs, transfers, balanceSnapshots, today);
+      balMap[bank.id] = actual;
+
+      // Projected: actual + pending transactions in (today, periodEnd] + future transfers in (today, periodEnd]
+      let proj = actual;
+      for (const t of transactions) {
+        if (t.bankId !== bank.id || t.status !== 'pending') continue;
+        if (t.date <= today || t.date > periodEnd) continue;
+        proj += t.type === 'income' ? t.amount : -t.amount;
+      }
+      // Transfers have no status — treat future ones as scheduled
+      for (const tr of transfers) {
+        if (tr.date <= today || tr.date > periodEnd) continue;
+        if (tr.fromBankId === bank.id) proj -= tr.amount;
+        if (tr.toBankId === bank.id) proj += tr.amount;
+      }
+      projMap[bank.id] = proj;
     }
-    const total = Object.values(map).reduce((s, v) => s + v, 0);
-    return { bankBalances: map, totalBankBalance: total };
-  }, [banks, transactions, transfers, balanceSnapshots]);
+
+    const totalActual = Object.values(balMap).reduce((s, v) => s + v, 0);
+    const totalProj = Object.values(projMap).reduce((s, v) => s + v, 0);
+    return { bankBalances: balMap, bankProjections: projMap, totalBankBalance: totalActual, totalBankProjection: totalProj };
+  }, [banks, transactions, transfers, balanceSnapshots, range]);
 
   const hasAlerts = highUsageCards.length > 0 || dueSoonInvoices.length > 0;
   const isCurrentMonth = period === 'current_month';
@@ -553,59 +578,82 @@ export const Dashboard = () => {
         );
       })()}
 
-      {/* Bank accounts — real-time balance, independent of period filter */}
-      {banks.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-primary" /> Contas Bancárias
-              </CardTitle>
-              <div className="text-right">
-                <p className="text-xs text-muted-foreground">Saldo total</p>
-                <p className={`text-lg font-bold leading-tight ${totalBankBalance >= 0 ? 'text-success' : 'text-destructive'}`}>
-                  {mask(totalBankBalance)}
-                </p>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-              {banks.map(bank => {
-                const balance = bankBalances[bank.id] ?? bank.initialBalance;
-                const Icon = getIcon(bank.icon);
-                return (
-                  <div key={bank.id} className="group flex items-center gap-3 p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 transition-colors">
-                    <div
-                      className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
-                      style={{ backgroundColor: `${bank.color}22`, color: bank.color }}
-                    >
-                      <Icon className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{bank.name}</p>
-                      <p className="text-xs text-muted-foreground">{BANK_TYPE_LABELS[bank.type] ?? bank.type}</p>
-                    </div>
-                    <p className={`text-sm font-semibold shrink-0 ${balance >= 0 ? 'text-success' : 'text-destructive'}`}>
-                      {mask(balance)}
+      {/* Bank accounts — actual (paid txs up to today) + projected (end of selected period) */}
+      {banks.length > 0 && (() => {
+        const [, pm, pd] = range.end.split('-');
+        const periodEndLabel = `${pd}/${pm}`;
+        const projDiffers = totalBankProjection !== totalBankBalance;
+        const projWorse = totalBankProjection < totalBankBalance;
+        return (
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-primary" /> Contas Bancárias
+                </CardTitle>
+                <div className="text-right">
+                  <p className="text-xs text-muted-foreground">Saldo total atual</p>
+                  <p className={`text-lg font-bold leading-tight ${totalBankBalance >= 0 ? 'text-success' : 'text-destructive'}`}>
+                    {mask(totalBankBalance)}
+                  </p>
+                  {projDiffers && (
+                    <p className={`text-xs font-medium leading-tight ${projWorse ? 'text-destructive' : 'text-muted-foreground'}`}>
+                      Prev. {periodEndLabel}: {mask(totalBankProjection)}
                     </p>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="Ajustar saldo"
-                      onClick={() => { setAdjustBank(bank); setAdjustOpen(true); }}
-                    >
-                      <SlidersHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
-                    </Button>
-                  </div>
-                );
-              })}
-            </div>
-            <p className="text-xs text-muted-foreground mt-3 text-center">Saldo atual · independente do período selecionado</p>
-          </CardContent>
-        </Card>
-      )}
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {banks.map(bank => {
+                  const balance = bankBalances[bank.id] ?? bank.initialBalance;
+                  const projection = bankProjections[bank.id] ?? balance;
+                  const bankProjDiffers = projection !== balance;
+                  const bankProjWorse = projection < balance;
+                  const Icon = getIcon(bank.icon);
+                  return (
+                    <div key={bank.id} className="group flex items-center gap-3 p-3 rounded-lg border bg-muted/20 hover:bg-muted/40 transition-colors">
+                      <div
+                        className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: `${bank.color}22`, color: bank.color }}
+                      >
+                        <Icon className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">{bank.name}</p>
+                        <p className="text-xs text-muted-foreground">{BANK_TYPE_LABELS[bank.type] ?? bank.type}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className={`text-sm font-semibold ${balance >= 0 ? 'text-success' : 'text-destructive'}`}>
+                          {mask(balance)}
+                        </p>
+                        {bankProjDiffers && (
+                          <p className={`text-xs ${bankProjWorse ? 'text-destructive' : 'text-muted-foreground'}`}>
+                            Prev: {mask(projection)}
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Ajustar saldo"
+                        onClick={() => { setAdjustBank(bank); setAdjustOpen(true); }}
+                      >
+                        <SlidersHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground mt-3 text-center">
+                Saldo atual (transações pagas até hoje) · previsão considera pendências até {periodEndLabel}
+              </p>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Top categories chart */}
