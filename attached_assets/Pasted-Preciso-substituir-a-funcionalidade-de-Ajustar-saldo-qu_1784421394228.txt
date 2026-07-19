@@ -1,0 +1,41 @@
+Preciso substituir a funcionalidade de "Ajustar saldo" que implementamos antes. O jeito atual cria uma transação de ajuste (categoria "Ajustes"), o que o usuário não quer — ele não quer nenhuma transação nova aparecendo em Transações, só quer que o saldo da conta passe a valer o valor informado a partir daquele momento, sem excluir nenhum lançamento existente.
+
+1. CRIAR TABELA DE "MARCOS DE SALDO" (SNAPSHOTS)
+- Crie uma migração idempotente supabase/schema_v9_balance_snapshots.sql com:
+create table if not exists balance_snapshots (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  bank_id uuid not null references banks(id) on delete cascade,
+  snapshot_date date not null,
+  balance numeric not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_balance_snapshots_bank on balance_snapshots(bank_id, snapshot_date desc);
+create index if not exists idx_balance_snapshots_user on balance_snapshots(user_id);
+alter table balance_snapshots enable row level security;
+-- adicione as policies de RLS no mesmo padrão das outras tabelas do projeto (select/insert/update/delete restritos a auth.uid() = user_id)
+
+2. MUDAR O CÁLCULO DE SALDO DA CONTA
+- Em src/services/dataService.ts (ou onde quer que o saldo de cada conta seja calculado hoje), mude a lógica para, por conta bancária:
+  a) Buscar o snapshot mais recente daquela conta (maior snapshot_date, e entre snapshots do mesmo dia o mais recente por created_at).
+  b) Se existir snapshot: saldo atual = snapshot.balance + soma das transações vinculadas àquela conta com date > snapshot.snapshot_date (mais transferências de/para essa conta no mesmo período).
+  c) Se NÃO existir snapshot: mantenha o cálculo antigo (initial_balance + soma de todas as transações da conta), exatamente como funciona hoje.
+- Aplique essa mesma lógica em TODOS os lugares que hoje calculam saldo de conta: Dashboard (cards de Contas Bancárias e Saldo total), Configurações > Bancos, e no próprio fluxo de "Ajustar saldo" (para mostrar o saldo atual antes do ajuste).
+
+3. ATUALIZAR O GRÁFICO "EVOLUÇÃO DO SALDO" (Relatórios)
+- Ajuste o cálculo dia a dia para, em cada dia D: usar o snapshot mais recente com snapshot_date <= D como base (se existir), somando as transações entre o snapshot e o dia D; caso não haja snapshot antes de D, usar o cálculo antigo (initial_balance + transações até D). Isso garante que dias ANTES de um ajuste continuem mostrando o saldo histórico real, e dias DEPOIS reflitam o novo marco.
+
+4. REFAZER O DIALOG "AJUSTAR SALDO"
+- Em vez de criar uma transação, o dialog agora deve inserir uma linha em balance_snapshots com snapshot_date = hoje e balance = valor informado pelo usuário.
+- Se o usuário tentar ajustar a mesma conta mais de uma vez no mesmo dia, faça um UPSERT (atualize o snapshot existente daquele dia em vez de criar um duplicado).
+- Remova toda a lógica antiga de criar transação de ajuste (categoria "Ajustes", campo is_balance_adjustment) desse fluxo especificamente — ele não deve mais gerar nenhuma transação.
+
+5. MIGRAR/LIMPAR O QUE JÁ FOI CRIADO ANTES
+- Identifique as transações já existentes marcadas com is_balance_adjustment = true (criadas pela versão anterior da funcionalidade).
+- Para cada uma, crie um balance_snapshots equivalente (mesma conta, mesma data, com o saldo resultante que ela representava) e DELETE a transação original, já que ela está sendo substituída pelo snapshot.
+- Ao final dessa migração, verifique que o saldo de cada conta calculado pelo novo método bate exatamente com o saldo que estava sendo mostrado antes (para não causar nenhuma mudança visível para o usuário nesse momento da migração).
+
+IMPORTANTE:
+- Não delete nem altere nenhuma transação que NÃO seja uma transação de ajuste antiga (is_balance_adjustment = true).
+- Mantenha o campo is_balance_adjustment e a categoria "Ajustes" existindo no banco (não precisa dropar), só pare de usá-los nesse fluxo daqui pra frente.
+- Rode pnpm run typecheck ao final e me diga quantos snapshots foram criados na migração do item 5 e quantas transações antigas foram removidas.
