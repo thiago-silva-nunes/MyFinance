@@ -1,0 +1,49 @@
+Preciso de três melhorias/correções no MyFinance: bulk actions em Categorias e Bancos, lista de bancos populares com seleção rápida, e uma reformulação do motor de recorrências para funcionar como "parcela recorrente" (sem depender de localStorage e sem perder períodos atrasados).
+
+═══════════════════════════════════════════
+1. CATEGORIAS: SELEÇÃO MÚLTIPLA + EDIÇÃO/EXCLUSÃO EM MASSA
+═══════════════════════════════════════════
+Em pages/Categories.tsx (ou onde estiver a tela de Categorias):
+- Adicione seleção múltipla via checkbox em cada card de categoria (checkbox no canto do card, sem atrapalhar o clique de expandir/editar subcategorias).
+- Adicione uma barra de ações em massa (aparece quando 1+ categorias selecionadas), com dois botões:
+  - "Editar classificação DRE" — abre um dialog com um campo (Classificação no DRE: Receita/Despesa Fixa/Despesa Variável/Despesa Financeira/Dedução), que ao confirmar faz um update em lote (.update().in('id', ids), não um loop) só desse campo, nas categorias selecionadas.
+  - "Excluir selecionadas" — com confirmação ("Tem certeza? Isso também removerá as subcategorias associadas"), fazendo delete em lote.
+- Ao excluir, respeite a mesma regra de integridade já existente hoje na exclusão individual (categorias com transações vinculadas), só estendendo para o modo em massa.
+
+═══════════════════════════════════════════
+2. BANCOS: SELEÇÃO MÚLTIPLA + EXCLUSÃO EM MASSA + LISTA DE BANCOS POPULARES
+═══════════════════════════════════════════
+Em pages/Banks.tsx (ou equivalente):
+- Mesma seleção múltipla + barra de ações em massa (excluir selecionadas) das Categorias.
+- No dialog "Nova Conta" (components/BankFormDialog.tsx), adicione uma lista de seleção rápida com os 20 bancos mais usados no Brasil, via Combobox/Select pesquisável (shadcn Command/Popover já estão no projeto), para o usuário não digitar o nome manualmente. Lista (nome + cor de marca aproximada para o avatar, SEM usar logos/imagens de marca reais — só nome e círculo colorido com a inicial, no mesmo padrão visual já usado hoje para bancos no app):
+  Banco do Brasil, Itaú Unibanco, Bradesco, Caixa Econômica Federal, Santander, Nubank, Inter, C6 Bank, BTG Pactual, Banco Original, Sicoob, Sicredi, Safra, Banco Votorantim, Neon, PagBank, Mercado Pago, Next, Banco Pan, Banco XP.
+- Ao escolher um banco da lista, pré-preencha nome e cor do avatar; o usuário ainda pode editar manualmente ou digitar um banco não listado.
+
+═══════════════════════════════════════════
+3. REFORMULAR O MOTOR DE RECORRÊNCIAS (services/recurringEngine.ts)
+═══════════════════════════════════════════
+Cada recorrência deve funcionar como uma "parcela recorrente": a cada período (conforme a frequência), nasce uma nova transação pendente; se não for paga, acumula como atrasada — tudo isso sem depender de localStorage e sem perder períodos quando o usuário demora a abrir o app.
+
+a) REMOVER A DEPENDÊNCIA DE LOCALSTORAGE
+- Remova a função alreadyCheckedThisMonth e a gravação em localStorage.setItem('myfinance_recurring_last_check', ...), incluindo o uso em context/FinanceContext.tsx (linha ~237, `if (alreadyCheckedThisMonth()) return;`).
+- A geração deve rodar toda vez que os dados forem carregados/atualizados (no mount do FinanceContext, e depois de criar ou editar uma recorrência) — isso é seguro porque a checagem de existência (existsForPeriod) evita duplicação mesmo rodando com frequência.
+
+b) GERAR TODOS OS PERÍODOS EM ATRASO (BACKFILL), NÃO SÓ O ATUAL
+- Hoje getExpectedReferenceMonth só calcula UM período (o mês/ano atual). Se o usuário ficar meses sem abrir o app, os períodos perdidos nunca são gerados retroativamente.
+- Crie getPendingPeriodsToGenerate(scheduled: ScheduledTransaction, asOf: Date = new Date()): string[], que retorna TODOS os reference_month (YYYY-MM) desde o início da recorrência (startDate) até o período atual, respeitando a frequência:
+  - monthly: um por mês, do mês de início até o atual.
+  - yearly: um por ano (no mês do start_date), do ano de início até o atual (ou o anterior se o mês de aniversário deste ano ainda não chegou).
+  - weekly/daily: mantenha o comportamento atual (um por mês) — não mude isso agora.
+  - once: continue retornando só o período único do start_date.
+- Limite de segurança: no máximo 36 períodos por chamada (evita geração descontrolada por dado corrompido); se atingir o limite, gere só os 36 mais recentes e logue um aviso no console.
+
+c) ATUALIZAR AS FUNÇÕES DE GERAÇÃO
+- Modifique generateAllPendingForCurrentPeriod para, por recorrência ativa, chamar getPendingPeriodsToGenerate e gerar cada período retornado que ainda não exista (via existsForPeriod), usando getTransactionDateForPeriod para calcular a data correta de cada período histórico (não só a atual).
+- Em context/FinanceContext.tsx, a função updateScheduled (linha ~360) hoje só salva os dados sem gerar nenhuma pendência — corrija para também rodar esse backfill completo após salvar (não só o período atual), cobrindo o caso de reativar uma recorrência ou mudar data/frequência.
+- generatePendingIfNeeded pode continuar aceitando um referenceMonth específico opcional (usado por addScheduled para gerar o período atual na hora), mas o backfill completo passa a rodar pela nova função em lote.
+
+d) PERFORMANCE
+- Em vez de 1 query de existsForPeriod por período por recorrência, busque de uma vez todas as transações já existentes vinculadas a cada scheduled_id (uma query trazendo todos os reference_month usados) e compare em memória com os períodos esperados.
+
+e) TESTE OS CENÁRIOS
+- Recorrência mensal criada há 4 meses sem nenhuma transação gerada ainda — ao recarregar, devem aparecer 4 pendentes/atrasadas, uma por
