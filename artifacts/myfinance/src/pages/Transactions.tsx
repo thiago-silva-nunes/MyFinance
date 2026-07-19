@@ -14,6 +14,7 @@ import { TransactionFormDialog } from '@/components/TransactionFormDialog';
 import { TransferFormDialog } from '@/components/TransferFormDialog';
 import { Transaction, Transfer } from '@/data/mockData';
 import { Search, Plus, Edit2, Trash2, CheckCircle, Layers, Loader2, ArrowRightLeft, Copy, Pencil, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { BulkEditTransactionsDialog } from '@/components/BulkEditTransactionsDialog';
 import { ConfirmPaymentDialog } from '@/components/ConfirmPaymentDialog';
 import { toast } from 'sonner';
@@ -33,7 +34,7 @@ type ListItem =
 
 export const Transactions = () => {
   const {
-    transactions, categories, banks, transfers,
+    transactions, categories, banks, transfers, loading,
     deleteTransaction, deleteTransactions, deleteInstallmentGroup, updateTransaction, bulkUpdateTransactions,
     deleteTransfer, loadMoreTransactions, hasMoreTransactions,
   } = useFinance();
@@ -230,6 +231,32 @@ export const Transactions = () => {
   const openNewForm = () => { setEditingTransaction(null); setDuplicatingTransaction(null); setIsFormOpen(true); };
   const openNewTransfer = () => { setEditingTransfer(null); setIsTransferFormOpen(true); };
 
+  if (loading) return (
+    <div className="space-y-6 pb-20 md:pb-0">
+      <div className="flex justify-between items-center gap-4">
+        <div className="space-y-2"><Skeleton className="h-9 w-40" /><Skeleton className="h-4 w-72" /></div>
+        <div className="flex gap-2"><Skeleton className="h-9 w-32" /><Skeleton className="h-9 w-36" /></div>
+      </div>
+      <div className="bg-card border rounded-xl p-4 space-y-4 shadow-sm">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[0,1,2,3].map(i => <Skeleton key={i} className="h-9 rounded-md" />)}
+        </div>
+        <div className="rounded-md border divide-y">
+          {[0,1,2,3,4,5,6].map(i => (
+            <div key={i} className="flex items-center gap-3 px-4 py-3.5">
+              <Skeleton className="h-4 w-4 rounded" />
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-4 flex-1" />
+              <Skeleton className="h-4 w-16" />
+              <Skeleton className="h-5 w-14 rounded-full" />
+              <Skeleton className="h-4 w-20" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-6 pb-20 md:pb-0">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -310,31 +337,32 @@ export const Transactions = () => {
 
         {/* Bulk action bar */}
         {someSelected && (
-          <div className="flex items-center justify-between bg-primary/10 border border-primary/20 rounded-lg px-4 py-2.5 gap-3">
-            <span className="text-sm font-medium">
+          <div className="flex flex-col sm:flex-row sm:items-center bg-primary/10 border border-primary/20 rounded-lg px-4 py-2.5 gap-2">
+            <span className="text-sm font-medium shrink-0">
               {selectedIds.size} selecionada{selectedIds.size !== 1 ? 's' : ''}
             </span>
-            <div className="flex gap-2 flex-wrap">
+            <div className="flex flex-wrap gap-2 sm:ml-auto">
               <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>
-                Limpar seleção
+                <span className="sm:hidden">Limpar</span>
+                <span className="hidden sm:inline">Limpar seleção</span>
               </Button>
               {selectedIds.size === 1 && (() => {
                 const singleId = [...selectedIds][0];
                 const singleTx = filteredTransactions.find(t => t.id === singleId);
                 return singleTx ? (
                   <Button variant="outline" size="sm" onClick={() => handleDuplicate(singleTx)}>
-                    <Copy className="w-3.5 h-3.5 mr-1.5" />
-                    Duplicar selecionada
+                    <Copy className="w-3.5 h-3.5 sm:mr-1.5" />
+                    <span className="hidden sm:inline">Duplicar</span>
                   </Button>
                 ) : null;
               })()}
               <Button variant="outline" size="sm" onClick={() => setBulkEditOpen(true)}>
-                <Pencil className="w-3.5 h-3.5 mr-1.5" />
-                Editar selecionadas
+                <Pencil className="w-3.5 h-3.5 sm:mr-1.5" />
+                <span className="hidden sm:inline">Editar</span>
               </Button>
               <Button variant="destructive" size="sm" onClick={() => setBulkDeleteOpen(true)}>
-                <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-                Excluir selecionadas
+                <Trash2 className="w-3.5 h-3.5 sm:mr-1.5" />
+                <span className="hidden sm:inline">Excluir</span>
               </Button>
             </div>
           </div>

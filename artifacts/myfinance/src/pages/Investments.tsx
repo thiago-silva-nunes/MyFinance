@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useFinance } from '@/context/FinanceContext';
 import { usePrivacy } from '@/context/PrivacyContext';
-import { formatCurrency, formatShortDate } from '@/lib/utils';
+import { formatCurrency, formatShortDate, parseBRLInput, formatBRLInput } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
+import { Skeleton } from '@/components/ui/skeleton';
+import { DatePicker } from '@/components/ui/date-picker';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
@@ -53,19 +55,6 @@ const ALL_TYPES: InvestmentType[] = [
   'criptomoedas', 'previdencia', 'tesouro_direto', 'outros',
 ];
 
-// ─── Currency input helper ────────────────────────────────────────────────────
-
-function parseCurrency(raw: string): number {
-  const cleaned = raw.replace(/[^\d,]/g, '').replace(',', '.');
-  const val = parseFloat(cleaned);
-  return isNaN(val) ? 0 : val;
-}
-
-function formatInputValue(val: number): string {
-  if (val === 0) return '';
-  return val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
 // ─── Investment Form Dialog ───────────────────────────────────────────────────
 
 interface InvestmentFormDialogProps {
@@ -87,13 +76,13 @@ const InvestmentFormDialog = ({ open, onOpenChange, editing, onSave }: Investmen
       setName(editing?.name ?? '');
       setType(editing?.type ?? 'renda_fixa');
       setInstitution(editing?.institution ?? '');
-      setInitialValue(editing ? formatInputValue(editing.initialValue) : '');
+      setInitialValue(editing ? formatBRLInput(editing.initialValue) : '');
     }
   }, [open, editing]);
 
   const handleSave = async () => {
     if (!name.trim()) { toast.error('Informe o nome do investimento'); return; }
-    const initVal = parseCurrency(initialValue);
+    const initVal = parseBRLInput(initialValue);
     setSaving(true);
     try {
       await onSave({
@@ -144,8 +133,8 @@ const InvestmentFormDialog = ({ open, onOpenChange, editing, onSave }: Investmen
               value={initialValue}
               onChange={e => setInitialValue(e.target.value)}
               onBlur={e => {
-                const n = parseCurrency(e.target.value);
-                setInitialValue(n > 0 ? formatInputValue(n) : '');
+                const n = parseBRLInput(e.target.value);
+                setInitialValue(n > 0 ? formatBRLInput(n) : '');
               }}
             />
           </div>
@@ -192,7 +181,7 @@ const InvTxDialog = ({ open, onOpenChange, investment, onSave }: InvTxDialogProp
 
   const handleSave = async () => {
     if (!investment) return;
-    const val = parseCurrency(amount);
+    const val = parseBRLInput(amount);
     if (val <= 0) { toast.error('Informe um valor maior que zero'); return; }
     setSaving(true);
     try {
@@ -244,14 +233,14 @@ const InvTxDialog = ({ open, onOpenChange, investment, onSave }: InvTxDialogProp
               value={amount}
               onChange={e => setAmount(e.target.value)}
               onBlur={e => {
-                const n = parseCurrency(e.target.value);
-                setAmount(n > 0 ? formatInputValue(n) : '');
+                const n = parseBRLInput(e.target.value);
+                setAmount(n > 0 ? formatBRLInput(n) : '');
               }}
             />
           </div>
           <div className="space-y-1.5">
             <Label>Data</Label>
-            <Input type="date" value={date} onChange={e => setDate(e.target.value)} />
+            <DatePicker value={date} onChange={setDate} />
           </div>
           <div className="space-y-1.5">
             <Label>Observação (opcional)</Label>
@@ -279,7 +268,7 @@ const InvTxDialog = ({ open, onOpenChange, investment, onSave }: InvTxDialogProp
 export const Investments = () => {
   const {
     investments, addInvestment, updateInvestment, deleteInvestment, deleteInvestments,
-    addInvestmentTransaction,
+    addInvestmentTransaction, loading,
   } = useFinance();
   const { hideValues } = usePrivacy();
 
@@ -377,6 +366,22 @@ export const Investments = () => {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  if (loading) return (
+    <div className="space-y-6 pb-20 md:pb-0">
+      <div className="flex justify-between items-center gap-4">
+        <div className="space-y-2"><Skeleton className="h-9 w-40" /><Skeleton className="h-4 w-56" /></div>
+        <Skeleton className="h-9 w-40" />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {[0,1,2].map(i => <Skeleton key={i} className="h-28 rounded-xl" />)}
+      </div>
+      <Skeleton className="h-72 rounded-xl" />
+      <div className="space-y-4">
+        {[0,1,2].map(i => <Skeleton key={i} className="h-24 rounded-xl" />)}
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-6 pb-20 md:pb-0">
 
@@ -411,14 +416,20 @@ export const Investments = () => {
         </Card>
         <Card className={cn('border-l-4', rentabilidadeRS >= 0 ? 'border-l-success/50' : 'border-l-destructive/50')}>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Rentabilidade</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Ganho estimado</CardTitle>
           </CardHeader>
           <CardContent>
             <div className={cn('text-2xl font-bold', rentabilidadeRS >= 0 ? 'text-success' : 'text-destructive')}>
               {hideValues ? 'R$ ••••••' : (rentabilidadeRS >= 0 ? '+' : '') + formatCurrency(rentabilidadeRS)}
             </div>
             <p className={cn('text-xs mt-1', rentabilidadeRS >= 0 ? 'text-success' : 'text-destructive')}>
-              {hideValues ? '••••' : `${rentabilidadeRS >= 0 ? '+' : ''}${rentabilidadePct.toFixed(2)}%`} sobre o total investido
+              {hideValues ? '••••' : `${rentabilidadeRS >= 0 ? '+' : ''}${rentabilidadePct.toFixed(2)}%`} vs. valor inicial
+            </p>
+            {/* Simplified P&L: currentValue − initialValue. Does not account for
+                intermediate contributions (aportes/retiradas). For a time-weighted
+                return (TWR), transaction-level history with entry dates would be needed. */}
+            <p className="text-[11px] text-muted-foreground/70 mt-1.5 leading-snug">
+              Comparado ao valor inicial registrado. Aportes intermediários podem distorcer a %.
             </p>
           </CardContent>
         </Card>

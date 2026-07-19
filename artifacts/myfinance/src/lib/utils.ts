@@ -40,3 +40,29 @@ export function formatShortDate(isoString: string) {
     year: '2-digit'
   }).format(date);
 }
+
+/**
+ * Parses a Brazilian-formatted currency string to a number.
+ * Handles thousand-separator dots correctly:
+ *   "1.234,56" → 1234.56
+ *   "1234,56"  → 1234.56
+ *   "0,99"     → 0.99
+ * Steps: strip non-digit/comma/dot → remove thousand-separator dots → swap decimal comma to dot.
+ */
+export function parseBRLInput(raw: string): number {
+  const cleaned = raw
+    .replace(/[^\d,.]/g, '')  // keep only digits, commas, dots
+    .replace(/\./g, '')       // remove thousand-separator dots
+    .replace(',', '.');       // convert decimal comma to dot
+  const val = parseFloat(cleaned);
+  return isNaN(val) ? 0 : val;
+}
+
+/**
+ * Formats a number as a pt-BR currency input string (e.g. 1234.56 → "1.234,56").
+ * Returns '' for zero so input fields stay visually clean.
+ */
+export function formatBRLInput(val: number): string {
+  if (val === 0) return '';
+  return val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}

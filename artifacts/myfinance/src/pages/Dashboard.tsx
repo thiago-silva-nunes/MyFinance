@@ -4,6 +4,7 @@ import { usePrivacy } from '@/context/PrivacyContext';
 import { computeBankBalanceAtDate } from '@/lib/balanceUtils';
 import { formatCurrency, formatShortDate } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -91,7 +92,7 @@ const BANK_TYPE_LABELS: Record<string, string> = {
 };
 
 export const Dashboard = () => {
-  const { transactions, scheduled, categories, cards, invoices, budgets, banks, transfers, balanceSnapshots, investments } = useFinance();
+  const { transactions, scheduled, categories, cards, invoices, budgets, banks, transfers, balanceSnapshots, investments, loading } = useFinance();
   const { hideValues } = usePrivacy();
   const [isTransactionFormOpen, setIsTransactionFormOpen] = React.useState(false);
   const [period, setPeriod] = useState<DashPeriod>('current_month');
@@ -245,6 +246,52 @@ export const Dashboard = () => {
 
   const hasAlerts = highUsageCards.length > 0 || dueSoonInvoices.length > 0;
   const isCurrentMonth = period === 'current_month';
+
+  if (loading) return (
+    <div className="space-y-6 pb-20 md:pb-0">
+      <div className="flex justify-between items-center gap-4">
+        <div className="space-y-2"><Skeleton className="h-9 w-40" /><Skeleton className="h-4 w-64" /></div>
+        <Skeleton className="h-9 w-36" />
+      </div>
+      <Skeleton className="h-14 w-full rounded-xl" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {[0,1,2].map(i => <Skeleton key={i} className="h-28 rounded-xl" />)}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Skeleton className="h-72 rounded-xl" /><Skeleton className="h-72 rounded-xl" />
+      </div>
+      <Skeleton className="h-64 rounded-xl" />
+    </div>
+  );
+
+  if (!loading && transactions.length === 0) return (
+    <div className="space-y-6 pb-20 md:pb-0">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Visão Geral</h1>
+          <p className="text-muted-foreground">Bem-vindo de volta! Aqui está o resumo das suas finanças.</p>
+        </div>
+        <Button onClick={() => setIsTransactionFormOpen(true)} className="w-full md:w-auto shadow-sm hover-elevate">
+          <Plus className="w-4 h-4 mr-2" /> Nova Transação
+        </Button>
+      </div>
+      <Card>
+        <CardContent className="py-20 flex flex-col items-center gap-4 text-center">
+          <TrendingBalance className="w-16 h-16 text-muted-foreground/20" />
+          <div>
+            <h3 className="font-semibold text-xl mb-2">Nenhuma transação ainda</h3>
+            <p className="text-muted-foreground text-sm max-w-sm">
+              Registre sua primeira entrada ou saída para começar a acompanhar suas finanças em tempo real.
+            </p>
+          </div>
+          <Button onClick={() => setIsTransactionFormOpen(true)} size="lg" className="mt-1">
+            <Plus className="w-4 h-4 mr-2" /> Registrar primeira transação
+          </Button>
+        </CardContent>
+      </Card>
+      <TransactionFormDialog open={isTransactionFormOpen} onOpenChange={setIsTransactionFormOpen} />
+    </div>
+  );
 
   return (
     <div className="space-y-6 pb-20 md:pb-0">

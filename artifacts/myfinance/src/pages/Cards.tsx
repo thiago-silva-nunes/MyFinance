@@ -9,6 +9,7 @@ import { Progress } from '@/components/ui/progress';
 import { CardFormDialog } from '@/components/CardFormDialog';
 import { CreditCard as CreditCardType } from '@/data/mockData';
 import { Plus, CreditCard, Pencil, Trash2, ChevronRight, AlertTriangle } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Link } from 'wouter';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
@@ -59,7 +60,7 @@ function VisualCard({ card, usedAmount, hideValues }: { card: CreditCardType; us
 }
 
 export const Cards = () => {
-  const { cards, invoices, deleteCard } = useFinance();
+  const { cards, invoices, deleteCard, loading } = useFinance();
   const { hideValues } = usePrivacy();
   const mask = (n: number) => hideValues ? 'R$ ••••••' : formatCurrency(n);
 
@@ -86,6 +87,18 @@ export const Cards = () => {
       toast.error(err instanceof Error ? err.message : 'Erro ao remover cartão');
     }
   };
+
+  if (loading) return (
+    <div className="space-y-6 pb-20 md:pb-0">
+      <div className="flex justify-between items-center gap-4">
+        <div className="space-y-2"><Skeleton className="h-9 w-56" /><Skeleton className="h-4 w-64" /></div>
+        <Skeleton className="h-9 w-32" />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        {[0,1,2].map(i => <Skeleton key={i} className="h-72 rounded-xl" />)}
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6 pb-20 md:pb-0">

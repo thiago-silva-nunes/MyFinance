@@ -17,6 +17,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'sonner';
 import { Target, Pencil, Trash2, Plus, TrendingUp, AlertTriangle, ChevronDown, ChevronRight, Layers, Loader2 } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Budget, BudgetGroup } from '@/data/mockData';
 import { cn } from '@/lib/utils';
 
@@ -373,7 +374,7 @@ function BudgetCard({ budget, spent, pct, compact, onEdit, onDelete, mask }: Bud
 // ─── Main page ─────────────────────────────────────────────────────────────────
 
 export const Budgets = () => {
-  const { budgets, budgetGroups, transactions, deleteBudget, deleteBudgetGroup } = useFinance();
+  const { budgets, budgetGroups, transactions, deleteBudget, deleteBudgetGroup, loading } = useFinance();
   const { hideValues } = usePrivacy();
 
   const [budgetDialogOpen, setBudgetDialogOpen] = useState(false);
@@ -457,6 +458,19 @@ export const Budgets = () => {
   const openEditBudget = (b: Budget) => { setEditing(b); setAddToBudgetGroupId(undefined); setBudgetDialogOpen(true); };
   const openNewGroup   = () => { setEditingGroup(null); setGroupDialogOpen(true); };
   const openEditGroup  = (g: BudgetGroup) => { setEditingGroup(g); setGroupDialogOpen(true); };
+
+  if (loading) return (
+    <div className="space-y-6 pb-20 md:pb-0">
+      <div className="flex justify-between items-center gap-4">
+        <div className="space-y-2"><Skeleton className="h-9 w-36" /><Skeleton className="h-4 w-72" /></div>
+        <div className="flex gap-2"><Skeleton className="h-9 w-32" /><Skeleton className="h-9 w-36" /></div>
+      </div>
+      <Skeleton className="h-32 rounded-xl" />
+      <div className="space-y-3">
+        {[0,1,2].map(i => <Skeleton key={i} className="h-20 rounded-xl" />)}
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6 pb-20 md:pb-0">

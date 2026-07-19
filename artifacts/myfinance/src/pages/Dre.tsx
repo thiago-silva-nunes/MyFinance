@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tooltip as RechartsTooltip, LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ChevronDown, ChevronRight, TrendingUp, TrendingDown, Minus, HelpCircle } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -221,13 +222,14 @@ const PERIOD_OPTIONS: { value: Period; label: string }[] = [
 ];
 
 export const Dre = () => {
-  const { categories, subcategories } = useFinance();
+  const { categories, subcategories, loading: ctxLoading } = useFinance();
   // Full transaction history — not limited to 12 months, for year/custom/12-month-chart views
-  const { data: transactions = [] } = useQuery({
+  const { data: transactions = [], isPending: txPending } = useQuery({
     queryKey: ['transactions', 'all'],
     queryFn: dataService.getAllTransactionsForReports,
     staleTime: 60_000,
   });
+  const loading = ctxLoading || txPending;
   const { hideValues } = usePrivacy();
   const mask = (n: number) => hideValues ? 'R$ ••••••' : formatCurrency(n);
 
@@ -279,6 +281,20 @@ export const Dre = () => {
   const toggleGroup = (id: string) => setExpandedGroups(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleCat   = (id: string) => setExpandedCats(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleSub   = (id: string) => setExpandedSubs(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  if (loading) return (
+    <div className="space-y-6 pb-20 md:pb-0">
+      <div className="flex justify-between items-center gap-4">
+        <div className="space-y-2"><Skeleton className="h-9 w-16" /><Skeleton className="h-4 w-56" /></div>
+        <Skeleton className="h-9 w-44" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[0,1,2,3].map(i => <Skeleton key={i} className="h-24 rounded-xl" />)}
+      </div>
+      <Skeleton className="h-[480px] rounded-xl" />
+      <Skeleton className="h-64 rounded-xl" />
+    </div>
+  );
 
   return (
     <div className="space-y-6 pb-20 md:pb-0">

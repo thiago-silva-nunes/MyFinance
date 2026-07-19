@@ -1,0 +1,32 @@
+Baseado no relatório de revisão que você mesmo gerou, preciso que corrija os problemas na seguinte ordem de prioridade:
+SEVERIDADE ALTA
+1. Loading state ausente em todas as telas com dados (Dashboard, Transactions, Investments, Budgets, Cards, DRE)
+Hoje, enquanto o FinanceContext ainda está carregando os dados do Supabase, essas telas renderizam gráficos e listas vazias antes dos dados chegarem, causando um "flash" enganoso de "sem dados"/"zerado" antes de mostrar os valores reais.
+
+No FinanceContext, exponha um estado isLoading (ou loading) que reflita se os dados essenciais (transações, categorias, contas, cartões, etc.) ainda estão sendo carregados.
+Em cada uma das telas listadas (Dashboard, Transactions, Investments, Budgets, Cards, DRE), enquanto isLoading === true, exibir um estado de carregamento apropriado — usar o componente Skeleton já existente em components/ui/skeleton.tsx para simular o layout real da tela (cards, linhas de tabela, barras de gráfico) em vez de um spinner genérico central, para uma experiência mais profissional.
+Só renderizar o conteúdo real (gráficos, listas, totais) depois que isLoading for false.
+Garanta que esse loading state não trave a tela indefinidamente em caso de erro na requisição — trate o caso de erro separadamente, mostrando uma mensagem clara.
+
+2. Investments.tsx (~linha 254) usando <Input type="date"> cru
+Troque pelo componente DatePicker já usado no restante do app (o mesmo que acabamos de melhorar visualmente em components/ui/date-picker.tsx), para manter 100% de consistência visual entre todas as telas do sistema.
+SEVERIDADE MÉDIA
+3. parseCurrency quebra com separador de milhar (Investments.tsx ~linha 59)
+A função atual não trata corretamente valores no formato brasileiro com separador de milhar (ex: "1.234,56"), gerando NaN porque provavelmente troca , por . sem antes remover os pontos de milhar. Corrija a lógica para: primeiro remover todos os pontos (.) usados como separador de milhar, depois trocar a vírgula (,) decimal por ponto, e só então converter para número. Exemplo esperado: "1.234,56" → 1234.56. Adicione um teste rápido cobrindo esse caso (valores com e sem milhar, com e sem centavos).
+4. Cálculo de rentabilidade de investimentos não considera aportes/retiradas no meio do período
+Hoje o cálculo é (valor atual - valor inicial), que distorce a rentabilidade real quando há aportes ou retiradas durante o período analisado (ex: um aporte grande no meio do mês infla a rentabilidade aparente sem representar ganho real).
+
+Implemente um cálculo de rentabilidade que considere o fluxo de caixa ao longo do tempo — o método mais simples e correto para isso é o TWR (Time-Weighted Return), que neutraliza o efeito de aportes/retiradas ao quebrar o período em subperíodos a cada movimentação de caixa.
+Se isso for muito complexo de implementar agora, como alternativa mais simples, ao menos separe visualmente na tela "Ganho por valorização" (rentabilidade real dos ativos) de "Aportes líquidos no período" (dinheiro que entrou/saiu), para não induzir o usuário a erro — mas prefira implementar o TWR corretamente se o tempo permitir, já que essa tela será usada para decisões financeiras reais.
+Documente no código (comentário) qual metodologia foi usada, para referência futura.
+
+5. parseCurrency / formatInputValue duplicados em vários dialogs/pages
+Centralize essas funções em lib/utils.ts (ou um novo arquivo lib/currencyUtils.ts, se fizer mais sentido para organização), e substitua todas as implementações duplicadas nos diferentes componentes/páginas por essa versão única importada. Isso evita bugs futuros onde uma cópia é corrigida e as outras não (como já quase aconteceu aqui).
+SEVERIDADE BAIXA
+6. Barra de bulk actions (seleção múltipla) pode transbordar em mobile (Transactions.tsx)
+Revise o CSS/layout dessa barra fixa (a que aparece ao selecionar transações para exclusão em lote) para telas pequenas: garanta que os textos, contador de itens selecionados e botões não estourem a largura da tela, usando quebra de linha, redução de texto (ex: abreviar "Excluir selecionados" para "Excluir" em telas pequenas), ou um layout empilhado (flex-col) abaixo de um breakpoint específico (sm: do Tailwind).
+7. Dashboard sem estado vazio global (apenas por gráfico individual)
+Quando o usuário é novo e ainda não tem nenhuma transação cadastrada, cada gráfico/card do Dashboard mostra seu próprio estado vazio isoladamente, o que pode parecer fragmentado ou confuso. Avalie adicionar um estado vazio unificado e amigável para quando não houver nenhum dado no sistema ainda (ex: um card centralizado de boas-vindas com "Você ainda não tem transações. Que tal começar registrando sua primeira?" com botão de atalho para "Nova Transação"), substituindo a visão fragmentada de vários gráficos vazios simultâneos.
+
+Depois de aplicar as correções, teste especialmente: carregar o app com conexão lenta simulada (dev tools → throttling) para confirmar que os skeletons aparecem corretamente antes dos dados reais; cadastrar um investimento com valor "1.234,56" e confirmar que salva certo; e verificar a tela de bulk actions em viewport mobile.
+Só depois disso, na próxima etapa, vamos avançar para melhorias mais profundas específicas do módulo de Investimentos (gráficos, alocação por tipo de ativo, etc.) — quero revisar esse plano antes de você implementar.
