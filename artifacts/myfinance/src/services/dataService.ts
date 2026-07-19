@@ -501,10 +501,10 @@ export const dataService = {
   },
 
   updateTransaction: async (id: string, tx: Partial<Transaction>): Promise<Transaction> => {
-    // Fetch the existing transaction to know its old cardId/referenceMonth
+    // Fetch the existing transaction to know its old cardId/referenceMonth/scheduledId
     const { data: existing } = await supabase
       .from('transactions')
-      .select('card_id, reference_month, date')
+      .select('card_id, reference_month, date, scheduled_id')
       .eq('id', id)
       .single();
 
@@ -539,7 +539,18 @@ export const dataService = {
           updates.reference_month = getInvoiceReferenceMonth(newDate, cardRow.closing_day);
         }
       } else {
-        updates.reference_month = null;
+        // For recurring transactions (scheduled_id is set), reference_month is the
+        // period identifier set by the engine — it must NOT change when the user
+        // adjusts the payment date (e.g. paying early or late). Nulling it here
+        // would cause the engine to see that period as uncovered and generate a
+        // duplicate pending transaction on the next load.
+        //
+        // Only null reference_month for plain (non-recurring) transactions that
+        // have no card, since those genuinely don't belong to any invoice period.
+        const isScheduled = !!(existing?.scheduled_id ?? tx.scheduledId);
+        if (!isScheduled) {
+          updates.reference_month = null;
+        }
       }
     }
 

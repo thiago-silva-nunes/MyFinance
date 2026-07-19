@@ -1,0 +1,27 @@
+Regressão: recorrências estão duplicando de novo mesmo após a correção anterior — pagar antecipado ou atrasado uma conta recorrente (ex: Financiamento Ape) faz o sistema gerar uma NOVA pendência pro mesmo mês, mesmo já existindo uma paga. Preciso de uma auditoria completa e definitiva desse fluxo, não um remendo pontual.
+
+CONTEXTO IMPORTANTE: o design já correto é usar scheduled_id + reference_month como identificador único de cada período (não precisa criar nenhum ID novo por mês — isso já existe e é leve, só uma string + índice). O bug é de implementação, não de modelo de dados.
+
+1. AUDITE O CONFIRMPAYMENTDIALOG (components/ConfirmPaymentDialog.tsx) E O FLUXO DE PAGAMENTO
+- Esse dialog permite o usuário ajustar valor e/ou data ao marcar uma transação recorrente como paga (para casos de juros/multa por atraso). Confirme, linha por linha, que a chamada a updateTransaction feita a partir desse dialog envia APENAS { status: 'paid', amount: novoValor, date: novaData(se alterada) } — e NUNCA reference_month nem scheduled_id. Esses dois campos identificam a qual período aquela transação pertence e NÃO PODEM mudar ao pagar, independente de qual data real o usuário informar como data de pagamento.
+- Se o usuário mudar a data de pagamento para um dia de um MÊS DIFERENTE do reference_month original (ex: a conta era de julho mas só foi paga em agosto), a transação continua pertencendo ao período de julho (reference_month = '2026-07') — ela não deve "migrar" pra agosto nem liberar agosto pra gerar uma pendência extra por causa disso.
+
+2. AUDITE dataService.updateTransaction
+- Confirme que updateTransaction, ao receber um payload parcial (ex: só { status, amount }), NUNCA sobrescreve reference_month ou scheduled_id com null/undefined por engano (ex: um bug de spread de objeto que apague campos não enviados, ou um update completo ao invés de parcial).
+- Adicione um teste/log temporário: depois de marcar uma recorrência como paga, confirme via console.log ou query direta que a transação resultante manteve o mesmo reference_month e scheduled_id de antes.
+
+3. AUDITE A GERAÇÃO RETROATIVA (getPendingPeriodsToGenerate / generateAllPendingForCurrentPeriod)
+- Confirme que, antes de gerar qualquer período, a checagem busca TODAS as transações existentes para aquele scheduled_id (independente de status) e compara os reference_month já usados — se a consulta usada aqui não estiver pegando transações com status='paid' (ex: um filtro esquecido de status='pending' que sobrou de uma versão anterior), corrija para considerar QUALQUER status como "período já coberto".
+- Isso deve rodar tanto no carregamento normal do FinanceContext quanto em updateScheduled (edição/reativação de recorrência) — confirme que nenhum desses caminhos duplicou a lógica de forma inconsistente (ex: um caminho checa status='paid' e outro não).
+
+4. TESTE OS 3 CENÁRIOS EXATOS QUE O USUÁRIO DESCREVEU
+- Pagar uma recorrência ANTECIPADO (antes da data de vencimento do mês) — confirme que NENHUMA nova pendência é gerada pra aquele mesmo mês depois.
+- Pagar uma recorrência ATRASADA (depois da data de vencimento, ainda dentro do mesmo mês) — mesma confirmação.
+- Ter uma conta atrasada de um mês anterior (ex: junho) e pagar ela agora (em julho) — confirme que isso NÃO interfere na pendência de julho (julho deve gerar/manter sua própria pendência normalmente, independente do pagamento atrasado de junho).
+
+5. LIMPEZA DE DADOS JÁ DUPLICADOS
+- Como esse bug já gerou duplicatas reais na conta do usuário (ex: dois registros de "Financiamento Ape" possivelmente para o mesmo mês), rode uma consulta pra identificar transações com o mesmo scheduled_id + reference_month (mais de uma linha), me liste quais encontrou, e pergunte antes de decidir qual manter/excluir (normalmente a paga deve prevalecer sobre a pendente duplicada do mesmo período).
+
+IMPORTANTE:
+- Não crie nenhum sistema novo de ID por período — reference_month + scheduled_id já é o identificador correto e eficiente, só precisa ser respeitado consistentemente em todos os pontos do código.
+- Rode pnpm run typecheck ao final, e me reporte exatamente qual era a causa raiz encontrada (não só "corrigido", preciso entender o que estava errado) e quantas duplicatas foram encontradas/limpas.
