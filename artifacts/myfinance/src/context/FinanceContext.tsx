@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Category, Subcategory, Transaction, ScheduledTransaction, CreditCard, Invoice, Budget, BankAccount, BudgetGroup, Transfer } from '../data/mockData';
+import { Category, Subcategory, Transaction, ScheduledTransaction, CreditCard, Invoice, Budget, BankAccount, BudgetGroup, Transfer, Investment, InvestmentTransaction } from '../data/mockData';
 import type { BalanceSnapshot } from '../lib/balanceUtils';
 import { dataService } from '../services/dataService';
 import { useAuth } from './AuthContext';
@@ -26,6 +26,7 @@ const QK = {
   banks:            () => ['banks']            as const,
   transfers:        () => ['transfers']        as const,
   balanceSnapshots: () => ['balanceSnapshots'] as const,
+  investments:      () => ['investments']      as const,
 };
 
 export { QK as FINANCE_QUERY_KEYS };
@@ -104,6 +105,14 @@ interface FinanceContextType {
 
   updateSettings: (data: Partial<{ currency: string; theme: 'light' | 'dark' }>) => void;
   loadSampleData: () => Promise<void>;
+
+  // ── Investments ────────────────────────────────────────────────────────────
+  investments: Investment[];
+  addInvestment: (data: Omit<Investment, 'id' | 'createdAt'>) => Promise<void>;
+  updateInvestment: (id: string, data: Partial<Omit<Investment, 'id' | 'createdAt'>>) => Promise<void>;
+  deleteInvestment: (id: string) => Promise<void>;
+  deleteInvestments: (ids: string[]) => Promise<void>;
+  addInvestmentTransaction: (tx: Omit<InvestmentTransaction, 'id' | 'createdAt'>) => Promise<void>;
 }
 
 const FinanceContext = createContext<FinanceContextType | undefined>(undefined);
@@ -227,11 +236,19 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     staleTime: STALE_TIME,
   });
 
+  const { data: investments = [], isPending: investmentsPending } = useQuery({
+    queryKey: QK.investments(),
+    queryFn: () => dataService.getInvestments().catch(() => [] as Investment[]),
+    enabled,
+    staleTime: STALE_TIME,
+  });
+
   // Loading = true only while user is logged in AND any query hasn't resolved yet
   const loading = enabled && (
     catsPending || subcatsPending || txnsPending || schedPending ||
     cardsPending || invoicesPending || budgetsPending ||
-    budgetGroupsPending || banksPending || transfersPending || snapshotsPending
+    budgetGroupsPending || banksPending || transfersPending || snapshotsPending ||
+    investmentsPending
   );
 
   // ─── Auto-geração de pendentes recorrentes (backfill completo) ────────────
@@ -549,10 +566,37 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     await queryClient.invalidateQueries();
   };
 
+  // ─── Investment actions ────────────────────────────────────────────────────
+  const addInvestment = async (data: Omit<Investment, 'id' | 'createdAt'>) => {
+    const inv = await dataService.addInvestment(data);
+    queryClient.setQueryData(QK.investments(), (old: Investment[] = []) => [inv, ...old]);
+  };
+  const updateInvestment = async (id: string, data: Partial<Omit<Investment, 'id' | 'createdAt'>>) => {
+    const inv = await dataService.updateInvestment(id, data);
+    queryClient.setQueryData(QK.investments(), (old: Investment[] = []) => old.map(x => x.id === id ? inv : x));
+  };
+  const deleteInvestment = async (id: string) => {
+    await dataService.deleteInvestment(id);
+    queryClient.setQueryData(QK.investments(), (old: Investment[] = []) => old.filter(x => x.id !== id));
+  };
+  const deleteInvestments = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    await dataService.deleteInvestments(ids);
+    queryClient.setQueryData(QK.investments(), (old: Investment[] = []) => old.filter(x => !ids.includes(x.id)));
+  };
+  const addInvestmentTransaction = async (tx: Omit<InvestmentTransaction, 'id' | 'createdAt'>) => {
+    const { updatedInvestment } = await dataService.addInvestmentTransaction(tx);
+    // Update the investment's currentValue in cache immediately
+    queryClient.setQueryData(QK.investments(), (old: Investment[] = []) =>
+      old.map(x => x.id === updatedInvestment.id ? updatedInvestment : x)
+    );
+  };
+
   return (
     <FinanceContext.Provider value={{
       categories, subcategories, transactions, scheduled, cards, invoices,
       budgets, budgetGroups, banks, transfers, balanceSnapshots,
+      investments,
       settings, loading,
       refreshData, loadMoreTransactions, hasMoreTransactions,
       addCategory, updateCategory, deleteCategory, bulkUpdateCategories, deleteCategories,
@@ -567,6 +611,7 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
       upsertBalanceSnapshot,
       addTransfer, updateTransfer, deleteTransfer,
       updateSettings, loadSampleData,
+      addInvestment, updateInvestment, deleteInvestment, deleteInvestments, addInvestmentTransaction,
     }}>
       {children}
     </FinanceContext.Provider>

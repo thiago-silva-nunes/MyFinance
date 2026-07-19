@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Link, useLocation } from 'wouter';
 import {
   LayoutDashboard, Receipt, CalendarClock, LineChart,
   Settings, Wallet, LogOut, Plus, MoreHorizontal, BarChart2,
   Eye, EyeOff, Target, CreditCard, Tag, Building2,
+  AlertCircle, TrendingUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -21,24 +22,43 @@ import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from '@/components/ui/tooltip';
 
-const navItems = [
-  { href: '/',             label: 'Dashboard',   icon: LayoutDashboard },
-  { href: '/transactions', label: 'Transações',  icon: Receipt },
-  { href: '/orcamentos',   label: 'Orçamentos',  icon: Target },
-  { href: '/scheduled',    label: 'Recorrentes', icon: CalendarClock },
-  { href: '/cards',        label: 'Cartões',     icon: CreditCard },
-  { href: '/categories',   label: 'Categorias',  icon: Tag },
-  { href: '/banks',        label: 'Bancos',      icon: Building2 },
-  { href: '/dre',          label: 'DRE',         icon: BarChart2 },
-  { href: '/reports',      label: 'Relatórios',  icon: LineChart },
+const BASE_NAV_ITEMS = [
+  { href: '/',             label: 'Dashboard',    icon: LayoutDashboard },
+  { href: '/transactions', label: 'Transações',   icon: Receipt },
+  { href: '/orcamentos',   label: 'Orçamentos',   icon: Target },
+  { href: '/scheduled',    label: 'Recorrentes',  icon: CalendarClock },
+  { href: '/pendencias',   label: 'Pendências',   icon: AlertCircle,  badge: true },
+  { href: '/cards',        label: 'Cartões',      icon: CreditCard },
+  { href: '/investments',  label: 'Investimentos', icon: TrendingUp },
+  { href: '/categories',   label: 'Categorias',   icon: Tag },
+  { href: '/banks',        label: 'Bancos',       icon: Building2 },
+  { href: '/dre',          label: 'DRE',          icon: BarChart2 },
+  { href: '/reports',      label: 'Relatórios',   icon: LineChart },
 ];
 
-const moreItems = ['/orcamentos', '/scheduled', '/scheduled/analise', '/cards', '/categories', '/banks', '/dre', '/reports', '/settings'];
+const moreItems = [
+  '/orcamentos', '/scheduled', '/scheduled/analise', '/pendencias', '/cards',
+  '/investments', '/categories', '/banks', '/dre', '/reports', '/settings',
+];
 
 export const Layout = ({ children }: { children: React.ReactNode }) => {
   const [location] = useLocation();
-  const { settings } = useFinance();
+  const { settings, transactions, invoices } = useFinance();
   const { signOut } = useAuth();
+
+  // ── Pendências badge count ────────────────────────────────────────────────
+  const pendenciasCount = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const overdueExpenses = transactions.filter(
+      t => t.type === 'expense' && t.status === 'pending' && t.date < today,
+    ).length;
+    const openInvoices = invoices.filter(
+      inv => inv.status === 'closed' || inv.status === 'overdue',
+    ).length;
+    return overdueExpenses + openInvoices;
+  }, [transactions, invoices]);
+
+  const navItems = BASE_NAV_ITEMS;
   const { hideValues, toggleHideValues } = usePrivacy();
   const [addOpen, setAddOpen] = useState(false);
 
@@ -96,12 +116,18 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
         <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = location === item.href || (item.href !== '/' && location.startsWith(item.href));
+            const badgeCount = item.badge ? pendenciasCount : 0;
             return (
               <Link key={item.href} href={item.href}
                 className={cn('flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
                   isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground')}>
                 <item.icon className={cn('w-5 h-5', isActive ? 'text-primary' : 'text-muted-foreground')} />
                 {item.label}
+                {badgeCount > 0 && (
+                  <span className="ml-auto flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-destructive text-destructive-foreground text-[11px] font-bold">
+                    {badgeCount > 99 ? '99+' : badgeCount}
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -204,7 +230,20 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
                 <Link href="/scheduled" className="flex items-center gap-2"><CalendarClock className="w-4 h-4" /> Recorrentes</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
+                <Link href="/pendencias" className="flex items-center gap-2 justify-between">
+                  <span className="flex items-center gap-2"><AlertCircle className="w-4 h-4" /> Pendências</span>
+                  {pendenciasCount > 0 && (
+                    <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold">
+                      {pendenciasCount > 99 ? '99+' : pendenciasCount}
+                    </span>
+                  )}
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
                 <Link href="/cards" className="flex items-center gap-2"><CreditCard className="w-4 h-4" /> Cartões</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/investments" className="flex items-center gap-2"><TrendingUp className="w-4 h-4" /> Investimentos</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href="/categories" className="flex items-center gap-2"><Tag className="w-4 h-4" /> Categorias</Link>

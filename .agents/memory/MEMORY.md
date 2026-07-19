@@ -2,3 +2,5 @@
 - [FinanceContext finally pattern](finance-context-finally.md) — addTransaction/addInstallments/updateTransaction use try/finally so refreshData() always fires even if secondary steps throw.
 - [Progress indicatorClassName](progress-indicator-classname.md) — Progress component was patched to accept indicatorClassName prop for colored bars (green/amber/red).
 - [Budget schema location](budget-schema.md) — budgets table SQL is in supabase/schema_v3_budgets.sql; must be run after schema.sql in Supabase SQL Editor.
+- [Investments schema location](investments-schema.md) — investments + investment_transactions tables in supabase/schema_v10_investments.sql; run after schema.sql.
+- [ConfirmPaymentDialog API](confirm-payment-dialog.md) — props: open (required boolean), transaction, onOpenChange, onConfirm(amount, date) — NOT (tx) object.

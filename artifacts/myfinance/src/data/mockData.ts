@@ -91,6 +91,28 @@ export interface Transfer {
   notes?: string;
 }
 
+export type InvestmentType = 'renda_fixa' | 'acoes' | 'fundos_imobiliarios' | 'fundos' | 'criptomoedas' | 'previdencia' | 'tesouro_direto' | 'outros';
+
+export interface Investment {
+  id: string;
+  name: string;
+  type: InvestmentType;
+  institution?: string;
+  initialValue: number;
+  currentValue: number;
+  createdAt: string;
+}
+
+export interface InvestmentTransaction {
+  id: string;
+  investmentId: string;
+  date: string;
+  type: 'aporte' | 'resgate' | 'atualizacao_valor';
+  amount: number;
+  notes?: string;
+  createdAt: string;
+}
+
 export interface BudgetGroup {
   id: string;
   name: string;

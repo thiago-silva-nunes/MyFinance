@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { Category, Subcategory, Transaction, ScheduledTransaction, CreditCard, Invoice, BankAccount, BudgetGroup } from '../data/mockData';
+import type { Category, Subcategory, Transaction, ScheduledTransaction, CreditCard, Invoice, BankAccount, BudgetGroup, Investment, InvestmentTransaction } from '../data/mockData';
 import type { BalanceSnapshot } from '../lib/balanceUtils';
 
 const SETTINGS_KEY = 'myfinance_settings';
@@ -1227,6 +1227,157 @@ export const dataService = {
   deleteTransfer: async (id: string): Promise<void> => {
     const { error } = await supabase.from('transfers').delete().eq('id', id);
     if (error) throw error;
+  },
+
+  // ─── Investments ──────────────────────────────────────────────────────────
+
+  getInvestments: async (): Promise<Investment[]> => {
+    const user = await getSessionUser();
+    if (!user) throw new Error('Not authenticated');
+    const { data, error } = await supabase
+      .from('investments')
+      .select('id, name, type, institution, initial_value, current_value, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map(row => ({
+      id: row.id,
+      name: row.name,
+      type: row.type as Investment['type'],
+      institution: row.institution ?? undefined,
+      initialValue: Number(row.initial_value),
+      currentValue: Number(row.current_value),
+      createdAt: row.created_at,
+    }));
+  },
+
+  addInvestment: async (inv: Omit<Investment, 'id' | 'createdAt'>): Promise<Investment> => {
+    const user = await getSessionUser();
+    if (!user) throw new Error('Not authenticated');
+    const { data, error } = await supabase
+      .from('investments')
+      .insert({
+        user_id: user.id,
+        name: inv.name,
+        type: inv.type,
+        institution: inv.institution ?? null,
+        initial_value: inv.initialValue,
+        current_value: inv.currentValue,
+      })
+      .select('id, name, type, institution, initial_value, current_value, created_at')
+      .single();
+    if (error) throw error;
+    return {
+      id: data.id, name: data.name, type: data.type as Investment['type'],
+      institution: data.institution ?? undefined,
+      initialValue: Number(data.initial_value), currentValue: Number(data.current_value),
+      createdAt: data.created_at,
+    };
+  },
+
+  updateInvestment: async (id: string, inv: Partial<Omit<Investment, 'id' | 'createdAt'>>): Promise<Investment> => {
+    const updates: Record<string, unknown> = {};
+    if (inv.name !== undefined) updates.name = inv.name;
+    if (inv.type !== undefined) updates.type = inv.type;
+    if (inv.institution !== undefined) updates.institution = inv.institution ?? null;
+    if (inv.initialValue !== undefined) updates.initial_value = inv.initialValue;
+    if (inv.currentValue !== undefined) updates.current_value = inv.currentValue;
+    const { data, error } = await supabase
+      .from('investments')
+      .update(updates)
+      .eq('id', id)
+      .select('id, name, type, institution, initial_value, current_value, created_at')
+      .single();
+    if (error) throw error;
+    return {
+      id: data.id, name: data.name, type: data.type as Investment['type'],
+      institution: data.institution ?? undefined,
+      initialValue: Number(data.initial_value), currentValue: Number(data.current_value),
+      createdAt: data.created_at,
+    };
+  },
+
+  deleteInvestment: async (id: string): Promise<void> => {
+    const { error } = await supabase.from('investments').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  deleteInvestments: async (ids: string[]): Promise<void> => {
+    if (ids.length === 0) return;
+    const { error } = await supabase.from('investments').delete().in('id', ids);
+    if (error) throw error;
+  },
+
+  getInvestmentTransactions: async (investmentId: string): Promise<InvestmentTransaction[]> => {
+    const { data, error } = await supabase
+      .from('investment_transactions')
+      .select('id, investment_id, date, type, amount, notes, created_at')
+      .eq('investment_id', investmentId)
+      .order('date', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map(row => ({
+      id: row.id, investmentId: row.investment_id,
+      date: row.date, type: row.type as InvestmentTransaction['type'],
+      amount: Number(row.amount), notes: row.notes ?? undefined,
+      createdAt: row.created_at,
+    }));
+  },
+
+  addInvestmentTransaction: async (
+    tx: Omit<InvestmentTransaction, 'id' | 'createdAt'>,
+  ): Promise<{ tx: InvestmentTransaction; updatedInvestment: Investment }> => {
+    const user = await getSessionUser();
+    if (!user) throw new Error('Not authenticated');
+
+    const { data: txData, error: txErr } = await supabase
+      .from('investment_transactions')
+      .insert({
+        user_id: user.id,
+        investment_id: tx.investmentId,
+        date: tx.date,
+        type: tx.type,
+        amount: tx.amount,
+        notes: tx.notes ?? null,
+      })
+      .select('id, investment_id, date, type, amount, notes, created_at')
+      .single();
+    if (txErr) throw txErr;
+
+    // Update current_value based on transaction type
+    const { data: inv, error: invErr } = await supabase
+      .from('investments')
+      .select('current_value')
+      .eq('id', tx.investmentId)
+      .single();
+    if (invErr) throw invErr;
+
+    let newValue = Number(inv.current_value);
+    if (tx.type === 'aporte') newValue += tx.amount;
+    else if (tx.type === 'resgate') newValue -= tx.amount;
+    else newValue = tx.amount; // atualizacao_valor sets directly
+
+    const { data: updInv, error: updErr } = await supabase
+      .from('investments')
+      .update({ current_value: newValue })
+      .eq('id', tx.investmentId)
+      .select('id, name, type, institution, initial_value, current_value, created_at')
+      .single();
+    if (updErr) throw updErr;
+
+    return {
+      tx: {
+        id: txData.id, investmentId: txData.investment_id,
+        date: txData.date, type: txData.type as InvestmentTransaction['type'],
+        amount: Number(txData.amount), notes: txData.notes ?? undefined,
+        createdAt: txData.created_at,
+      },
+      updatedInvestment: {
+        id: updInv.id, name: updInv.name, type: updInv.type as Investment['type'],
+        institution: updInv.institution ?? undefined,
+        initialValue: Number(updInv.initial_value), currentValue: Number(updInv.current_value),
+        createdAt: updInv.created_at,
+      },
+    };
   },
 
   // ─── Seed data ────────────────────────────────────────────────────────────

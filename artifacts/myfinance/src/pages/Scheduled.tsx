@@ -14,7 +14,7 @@ import { ScheduledTransaction, Transaction } from '@/data/mockData';
 import { Plus, Edit2, Trash2, RefreshCw, BarChart2, CheckCircle2, Clock, AlertCircle, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'wouter';
-import { getCurrentYearMonth, getExpectedReferenceMonth, getOverdueTransactions, getTodayStr } from '@/services/recurringEngine';
+import { getCurrentYearMonth, getExpectedReferenceMonth, getTodayStr } from '@/services/recurringEngine';
 
 export const Scheduled = () => {
   const { scheduled, categories, transactions, deleteScheduled, updateScheduled,
@@ -63,12 +63,6 @@ export const Scheduled = () => {
     }
     return map;
   }, [scheduled, transactions]);
-
-  // Transações pendentes de meses anteriores (atrasadas)
-  const overdueTransactions = useMemo(
-    () => getOverdueTransactions(scheduled, transactions),
-    [scheduled, transactions],
-  );
 
   const handleEdit = (item: ScheduledTransaction) => {
     setEditingScheduled(item);
@@ -196,49 +190,6 @@ export const Scheduled = () => {
               <Trash2 className="w-3.5 h-3.5 mr-1.5" />
               Excluir selecionadas
             </Button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Alerta de contas atrasadas ─────────────────────────────────────── */}
-      {overdueTransactions.length > 0 && (
-        <div className="border border-destructive/30 bg-destructive/5 rounded-xl p-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
-            <h3 className="font-semibold text-destructive">
-              Você tem {overdueTransactions.length} conta{overdueTransactions.length !== 1 ? 's' : ''} atrasada{overdueTransactions.length !== 1 ? 's' : ''} somando{' '}
-              {formatCurrency(overdueTransactions.reduce((s, t) => s + t.amount, 0))}
-            </h3>
-          </div>
-          <div className="divide-y divide-destructive/10">
-            {overdueTransactions.map(tx => {
-              const cat = categories.find(c => c.id === tx.categoryId);
-              return (
-                <div key={tx.id} className="flex items-center justify-between py-2 gap-3 flex-wrap">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="min-w-0">
-                      <p className="font-medium text-sm truncate">{tx.description}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {cat?.name ?? '—'} · vence {formatShortDate(tx.date)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <span className="font-semibold text-sm text-destructive">
-                      {formatCurrency(tx.amount)}
-                    </span>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="border-destructive/40 text-destructive hover:bg-destructive/10 whitespace-nowrap"
-                      onClick={() => setConfirmPaymentTarget(tx)}
-                    >
-                      Marcar como paga
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
           </div>
         </div>
       )}

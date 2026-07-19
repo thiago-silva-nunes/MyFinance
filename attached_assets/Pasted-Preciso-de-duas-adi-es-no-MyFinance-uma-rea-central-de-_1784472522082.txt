@@ -1,0 +1,79 @@
+Preciso de duas adições no MyFinance: uma área central de Pendências (mapa completo de tudo que está em aberto/vencido, incluindo faturas de cartão, cruzando com receitas a receber e projetando o saldo final do mês) e uma nova área de Investimentos, ambas no menu lateral.
+
+═══════════════════════════════════════════
+1. NOVA ÁREA "PENDÊNCIAS" — MAPA GERAL DO QUE NÃO FOI PAGO
+═══════════════════════════════════════════
+Crie pages/Pendencias.tsx, rota /pendencias, com item no menu lateral (components/Layout.tsx), ícone AlertCircle, posicionado logo após "Recorrentes". Essa página deve juntar TUDO que representa dinheiro em aberto — não só recorrências.
+
+a) FONTES DE DADOS A CRUZAR
+- Transações PENDENTES com data já vencida (date < hoje), de QUALQUER origem — recorrentes (scheduledId preenchido) OU avulsas (lançadas manualmente como pendente com data passada). Não limite mais a getOverdueTransactions só a recorrências: generalize para pegar qualquer transaction com status='pending' e date < hoje, do tipo 'expense'.
+- Faturas de cartão de crédito com status 'closed' ou 'overdue' (via useFinance().invoices) — fatura fechada ou vencida ainda não paga conta como pendência, mesmo que nenhuma transação individual esteja "pendente" (a fatura em si é o débito).
+- Transações PENDENTES de receita (type='income', status='pending'), com e sem data vencida — isso é "o que ainda vai entrar".
+
+b) LAYOUT DA PÁGINA
+- Card de resumo no topo dividido em 3 blocos:
+  1. "Total em aberto (a pagar)" = soma de (transações de despesa pendentes vencidas + valor total das faturas closed/overdue não pagas). Detalhe embaixo: "N contas atrasadas + M fatura(s) de cartão".
+  2. "A receber (ainda não recebido)" = soma das transações de receita pendentes (do período atual, ou todas — deixe um toggle "só este mês" / "tudo em aberto").
+  3. "Projeção de saldo ao fim do mês" = (saldo total atual das contas bancárias, via balance_snapshots/computeBankBalanceAtDate) + "A receber" − "Total em aberto". Se esse valor for negativo, mostre um alerta visual forte (vermelho, ícone de atenção) tipo "Atenção: no ritmo atual, você pode fechar o mês no negativo". Se for positivo, mostre em verde normalmente.
+- Seção "Contas atrasadas" (despesas vencidas, recorrentes + avulsas), lista com descrição, categoria, data de vencimento, valor, botão "Marcar como paga" (updateTransaction status: 'paid').
+- Seção "Faturas em aberto" (cartões), lista com nome do cartão, mês de referência, data de vencimento, valor total, badge de status (Fechada/Vencida), botão "Pagar fatura" que chama a função payInvoice(inv, card) já existente no FinanceContext (mesma usada em pages/CardDetail.tsx) — não duplique essa lógica, só reaproveite.
+- Seção "A vencer nos próximos 7 dias" (despesas pendentes ainda dentro do prazo, ordenadas da mais próxima), pra dar visão do que está chegando.
+- Seção "A receber" (receitas pendentes), lista simples com descrição, data prevista, valor.
+
+c) LIMPAR A TELA DE RECORRENTES
+- Em pages/Scheduled.tsx, remova o alerta de contas atrasadas do topo (ele migrou para /pendencias) — deixe só a tabela + seleção múltipla + edição em massa que já existem lá.
+
+d) BADGE NO MENU
+- No item "Pendências" do menu lateral, adicione um badge numérico (círculo vermelho) com a contagem total de itens vencidos (transações vencidas + faturas closed/overdue), visível em qualquer tela do app.
+
+═══════════════════════════════════════════
+2. NOVA ÁREA "INVESTIMENTOS" NO MENU
+═══════════════════════════════════════════
+Baseado no padrão de apps como Mobills/Organizze (área de "Patrimônio"/Investimentos): controle manual de posições de investimento, sem integração com corretoras nesta etapa.
+
+a) BANCO DE DADOS
+- Crie supabase/schema_v10_investments.sql (idempotente):
+create table if not exists investments (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null,
+  type text not null check (type in ('renda_fixa','acoes','fundos_imobiliarios','fundos','criptomoedas','previdencia','tesouro_direto','outros')),
+  institution text,
+  initial_value numeric not null default 0,
+  current_value numeric not null default 0,
+  created_at timestamptz not null default now()
+);
+create table if not exists investment_transactions (
+  id uuid primary key default gen_random_uuid(),
+  investment_id uuid not null references investments(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  date date not null,
+  type text not null check (type in ('aporte','resgate','atualizacao_valor')),
+  amount numeric not null,
+  notes text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_investment_tx_investment on investment_transactions(investment_id, date desc);
+alter table investments enable row level security;
+alter table investment_transactions enable row level security;
+-- adicione as policies de RLS no mesmo padrão das outras tabelas do projeto (restrito a auth.uid() = user_id)
+
+b) SERVIÇO E CONTEXTO
+- Em services/dataService.ts: getInvestments, addInvestment, updateInvestment, deleteInvestment, getInvestmentTransactions, addInvestmentTransaction (aporte soma ao current_value, resgate subtrai).
+- Integre no context/FinanceContext.tsx seguindo o padrão de cache do react-query já usado nas outras entidades.
+
+c) PÁGINA DE INVESTIMENTOS
+- Crie pages/Investments.tsx, rota /investments, item no menu "Investimentos" (ícone TrendingUp ou PiggyBank), após "Cartões".
+- Card de resumo: Total Investido, Valor Atual Total, Rentabilidade (R$ e %).
+- Gráfico de distribuição por tipo (donut chart, recharts já usado em Reports.tsx).
+- Lista de investimentos em cards (padrão visual das Contas Bancárias): nome, tipo, instituição, valor investido, valor atual, rentabilidade individual (verde/vermelho), editar/excluir, e botão "Registrar aporte/resgate" (dialog: tipo Aporte/Resgate, valor via CurrencyInput, data via DatePicker, observação opcional) — insere em investment_transactions e atualiza current_value.
+- Botão "Novo Investimento": nome, tipo (select), instituição (opcional), valor inicial investido.
+- Seleção múltipla + exclusão em massa, mesmo padrão de Categorias/Bancos.
+
+d) CARD "PATRIMÔNIO TOTAL" NO DASHBOARD
+- Adicione um card = saldo total das contas bancárias + valor atual total dos investimentos, no mesmo estilo dos cards existentes.
+
+IMPORTANTE:
+- Não use integração com corretoras/API de cotação — valores atualizados manualmente pelo usuário.
+- Não duplique a lógica de pagamento de fatura (reaproveite payInvoice já existente).
+- Rode pnpm run typecheck ao final e liste os arquivos criados/alterados.

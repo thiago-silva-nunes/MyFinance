@@ -91,7 +91,7 @@ const BANK_TYPE_LABELS: Record<string, string> = {
 };
 
 export const Dashboard = () => {
-  const { transactions, scheduled, categories, cards, invoices, budgets, banks, transfers, balanceSnapshots } = useFinance();
+  const { transactions, scheduled, categories, cards, invoices, budgets, banks, transfers, balanceSnapshots, investments } = useFinance();
   const { hideValues } = usePrivacy();
   const [isTransactionFormOpen, setIsTransactionFormOpen] = React.useState(false);
   const [period, setPeriod] = useState<DashPeriod>('current_month');
@@ -470,6 +470,41 @@ export const Dashboard = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* Patrimônio Total — bank balance + investment current value */}
+      {(banks.length > 0 || investments.length > 0) && (() => {
+        const totalInvestmentValue = investments.reduce((s, i) => s + i.currentValue, 0);
+        const patrimonio = totalBankBalance + totalInvestmentValue;
+        return (
+          <Card className="border-l-4 border-l-primary/50">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-primary" /> Patrimônio Total
+                </CardTitle>
+                <span className="text-xs text-muted-foreground">contas + investimentos</span>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${patrimonio >= 0 ? 'text-primary' : 'text-destructive'}`}>
+                {mask(patrimonio)}
+              </div>
+              <div className="flex gap-4 mt-2">
+                <div>
+                  <p className="text-xs text-muted-foreground">Saldo em contas</p>
+                  <p className="text-sm font-medium">{mask(totalBankBalance)}</p>
+                </div>
+                {investments.length > 0 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Investimentos</p>
+                    <p className="text-sm font-medium">{mask(totalInvestmentValue)}</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Bank accounts — real-time balance, independent of period filter */}
       {banks.length > 0 && (
