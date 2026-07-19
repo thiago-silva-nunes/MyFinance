@@ -1,0 +1,40 @@
+Preciso de duas correções no MyFinance.
+
+═══════════════════════════════════════════
+1. AJUSTE DE SALDO NÃO ESTÁ ATUALIZANDO NO FRONT
+═══════════════════════════════════════════
+O usuário reporta que ao confirmar um "Ajuste de saldo" (BalanceAdjustDialog → upsertBalanceSnapshot), o valor não muda na tela (Dashboard, Configurações > Bancos). Preciso que você investigue e corrija de ponta a ponta:
+
+a) VERIFIQUE SE A MIGRAÇÃO FOI EXECUTADA NO BANCO REAL
+- Rode uma consulta (ou peça pro usuário confirmar no Supabase SQL Editor) para checar se a tabela `balance_snapshots` existe: `select * from information_schema.tables where table_name = 'balance_snapshots';`
+- Se não existir, isso confirma que supabase/schema_v9_balance_snapshots.sql nunca rodou no banco de produção. Deixe isso bem explícito no seu relatório final, com a instrução exata pro usuário rodar esse arquivo no SQL Editor do Supabase.
+
+b) MELHORE O TRATAMENTO DE ERRO PARA FICAR ÓBVIO QUANDO ALGO ASSIM ACONTECER
+- Em dataService.upsertBalanceSnapshot, garanta que qualquer erro do Supabase (ex: tabela/coluna inexistente, RLS bloqueando) seja propagado com uma mensagem clara, incluindo o código do erro (ex: PGRST205, 42P01) na mensagem lançada, não só error.message genérico.
+- Em components/BalanceAdjustDialog.tsx, no catch de handleConfirm, garanta que o toast de erro mostre essa mensagem detalhada e que o dialog NÃO feche silenciosamente quando há erro (hoje ele só fecha em caso de sucesso, confirme que continua assim).
+
+c) CONFIRME A INVALIDAÇÃO/ATUALIZAÇÃO DO CACHE
+- Revise upsertBalanceSnapshot em context/FinanceContext.tsx: confirme que queryClient.setQueryData(QK.balanceSnapshots(), ...) está sendo chamado com o snapshot retornado do banco (não um valor otimista antes da confirmação do servidor), e que todos os locais que consomem `balanceSnapshots` do contexto (Dashboard.tsx, Settings.tsx, Reports.tsx) realmente re-renderizam quando esse array muda (verifique se estão usando o valor do useFinance() diretamente nos hooks de dependência do useMemo, e não uma cópia desatualizada).
+
+d) TESTE MANUALMENTE
+- Ajuste o saldo de uma conta de teste e confirme que o novo valor aparece imediatamente em: Dashboard (card Contas Bancárias), Configurações > Bancos, e no próprio dialog de Ajustar Saldo se aberto novamente (deve mostrar o novo saldo como "atual").
+
+═══════════════════════════════════════════
+2. CONFIRMAR/EDITAR O VALOR AO PAGAR UMA CONTA RECORRENTE
+═══════════════════════════════════════════
+Hoje, marcar uma transação como paga (toggleStatus em pages/Transactions.tsx, linha ~159) só alterna o status direto, sem confirmação. Preciso que, especificamente para transações vinculadas a uma recorrência (campo scheduledId preenchido) que estão sendo marcadas de 'pending' para 'paid', abra um pequeno dialog de confirmação ANTES de salvar — porque o valor da recorrência é fixo, mas o valor real pago pode ser diferente por causa de juros/multa de atraso.
+
+- Crie um componente novo, ex: components/ConfirmPaymentDialog.tsx, com:
+  - Título "Confirmar pagamento — {descrição}"
+  - Mostra o valor previsto (o valor atual da transação) como referência.
+  - Um campo de valor editável (usando o CurrencyInput já existente), pré-preenchido com o valor original, para o usuário ajustar caso tenha pago com juros/multa.
+  - Um campo de data de pagamento (usando o DatePicker já existente), pré-preenchido com a data de hoje.
+  - Botões "Cancelar" e "Confirmar pagamento".
+- Em pages/Transactions.tsx, altere toggleStatus: quando a transação tiver scheduledId preenchido E o status estiver mudando de 'pending' para 'paid', abra o ConfirmPaymentDialog em vez de marcar direto. Ao confirmar no dialog, chame updateTransaction(t.id, { status: 'paid', amount: valorConfirmado, date: dataConfirmada (opcional, só se o usuário mudar) }).
+- Quando for o caminho inverso (paid → pending) ou uma transação SEM scheduledId, mantenha o comportamento atual (toggle direto, sem dialog).
+- Aplique esse mesmo comportamento no botão "Marcar como paga" da seção de contas atrasadas em pages/Scheduled.tsx (implementada no prompt anterior sobre recorrências), para manter consistência.
+
+IMPORTANTE:
+- Não altere o comportamento de marcar como paga transações que NÃO são recorrentes.
+- Garanta que a mudança de valor no pagamento reflita corretamente no saldo da conta bancária, no Dashboard, DRE e Relatórios (usando o valor final confirmado, não o valor original da recorrência).
+- Rode pnpm run typecheck ao final e me diga: (1) se a tabela balance_snapshots existe no banco real, (2) quais arquivos foram alterados/criados.

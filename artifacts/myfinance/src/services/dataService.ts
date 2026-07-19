@@ -1136,7 +1136,16 @@ export const dataService = {
       )
       .select('id, bank_id, snapshot_date, balance, created_at')
       .single();
-    if (error) throw error;
+    if (error) {
+      // Surface the Supabase error code (e.g. 42P01 = table not found, PGRST205 = RLS block)
+      // so the UI can show a meaningful message instead of a generic one.
+      const code = (error as { code?: string }).code;
+      const hint = (error as { hint?: string }).hint;
+      const detail = [code, hint].filter(Boolean).join(' — ');
+      throw new Error(
+        `Erro ao salvar marco de saldo${detail ? ` [${detail}]` : ''}: ${error.message}`,
+      );
+    }
 
     const row = data as Record<string, unknown>;
     return {

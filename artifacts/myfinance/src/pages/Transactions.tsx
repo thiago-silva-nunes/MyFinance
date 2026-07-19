@@ -15,6 +15,7 @@ import { TransferFormDialog } from '@/components/TransferFormDialog';
 import { Transaction, Transfer } from '@/data/mockData';
 import { Search, Plus, Edit2, Trash2, CheckCircle, Layers, Loader2, ArrowRightLeft, Copy, Pencil } from 'lucide-react';
 import { BulkEditTransactionsDialog } from '@/components/BulkEditTransactionsDialog';
+import { ConfirmPaymentDialog } from '@/components/ConfirmPaymentDialog';
 import { toast } from 'sonner';
 
 interface InstallmentDeleteTarget {
@@ -51,6 +52,7 @@ export const Transactions = () => {
   const [isTransferFormOpen, setIsTransferFormOpen]   = useState(false);
   const [editingTransfer, setEditingTransfer]         = useState<Transfer | null>(null);
   const [installmentDeleteTarget, setInstallmentDeleteTarget] = useState<InstallmentDeleteTarget | null>(null);
+  const [confirmPaymentTarget, setConfirmPaymentTarget] = useState<Transaction | null>(null);
 
   // ── Batch selection (transactions only) ──────────────────────────────────
   const [selectedIds, setSelectedIds]     = useState<Set<string>>(new Set());
@@ -157,6 +159,13 @@ export const Transactions = () => {
   const handleEditTransfer = (t: Transfer) => { setEditingTransfer(t); setIsTransferFormOpen(true); };
 
   const toggleStatus = (t: Transaction) => {
+    // Recurring transaction going pending → paid: open confirmation dialog
+    // so the user can adjust amount (e.g. with interest/fines) and date.
+    if (t.scheduledId && t.status === 'pending') {
+      setConfirmPaymentTarget(t);
+      return;
+    }
+    // All other cases (paid → pending, or non-recurring): toggle directly.
     const newStatus = t.status === 'paid' ? 'pending' : 'paid';
     updateTransaction(t.id, { status: newStatus });
     toast.success(`Marcado como ${newStatus === 'paid' ? 'pago' : 'pendente'}`);
@@ -450,6 +459,19 @@ export const Transactions = () => {
           </Button>
         </div>
       )}
+
+      {/* Confirm payment dialog (recurring transactions pending → paid) */}
+      <ConfirmPaymentDialog
+        open={!!confirmPaymentTarget}
+        onOpenChange={open => { if (!open) setConfirmPaymentTarget(null); }}
+        transaction={confirmPaymentTarget}
+        onConfirm={async (amount, date) => {
+          if (!confirmPaymentTarget) return;
+          await updateTransaction(confirmPaymentTarget.id, { status: 'paid', amount, date });
+          toast.success('Marcado como pago');
+          setConfirmPaymentTarget(null);
+        }}
+      />
 
       {/* Transaction form */}
       <TransactionFormDialog

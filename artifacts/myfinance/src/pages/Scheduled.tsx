@@ -9,7 +9,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { getIcon } from '@/components/IconMap';
 import { TransactionFormDialog } from '@/components/TransactionFormDialog';
 import { BulkEditScheduledDialog } from '@/components/BulkEditScheduledDialog';
-import { ScheduledTransaction } from '@/data/mockData';
+import { ConfirmPaymentDialog } from '@/components/ConfirmPaymentDialog';
+import { ScheduledTransaction, Transaction } from '@/data/mockData';
 import { Plus, Edit2, Trash2, RefreshCw, BarChart2, CheckCircle2, Clock, AlertCircle, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'wouter';
@@ -21,6 +22,7 @@ export const Scheduled = () => {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingScheduled, setEditingScheduled] = useState<ScheduledTransaction | null>(null);
   const [regenerating, setRegenerating] = useState<string | null>(null);
+  const [confirmPaymentTarget, setConfirmPaymentTarget] = useState<Transaction | null>(null);
 
   // ── Bulk selection ────────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds]   = useState<Set<string>>(new Set());
@@ -229,7 +231,7 @@ export const Scheduled = () => {
                       size="sm"
                       variant="outline"
                       className="border-destructive/40 text-destructive hover:bg-destructive/10 whitespace-nowrap"
-                      onClick={() => updateTransaction(tx.id, { status: 'paid' })}
+                      onClick={() => setConfirmPaymentTarget(tx)}
                     >
                       Marcar como paga
                     </Button>
@@ -340,6 +342,19 @@ export const Scheduled = () => {
           </TableBody>
         </Table>
       </div>
+
+      {/* Confirm payment dialog (overdue recurring → paid) */}
+      <ConfirmPaymentDialog
+        open={!!confirmPaymentTarget}
+        onOpenChange={open => { if (!open) setConfirmPaymentTarget(null); }}
+        transaction={confirmPaymentTarget}
+        onConfirm={async (amount, date) => {
+          if (!confirmPaymentTarget) return;
+          await updateTransaction(confirmPaymentTarget.id, { status: 'paid', amount, date });
+          toast.success('Marcado como pago');
+          setConfirmPaymentTarget(null);
+        }}
+      />
 
       <TransactionFormDialog
         open={isFormOpen}
