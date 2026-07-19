@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { Category, Subcategory, Transaction, ScheduledTransaction, CreditCard, Invoice, BankAccount, BudgetGroup } from '../data/mockData';
+import type { BalanceSnapshot } from '../lib/balanceUtils';
 
 const SETTINGS_KEY = 'myfinance_settings';
 
@@ -1090,6 +1091,61 @@ export const dataService = {
   deleteBudgetGroup: async (id: string): Promise<void> => {
     const { error } = await supabase.from('budget_groups').delete().eq('id', id);
     if (error) throw error;
+  },
+
+  // ─── Balance Snapshots ────────────────────────────────────────────────────
+
+  getBalanceSnapshots: async (): Promise<BalanceSnapshot[]> => {
+    const user = await getSessionUser();
+    if (!user) throw new Error('Not authenticated');
+    const { data, error } = await supabase
+      .from('balance_snapshots')
+      .select('id, bank_id, snapshot_date, balance, created_at')
+      .eq('user_id', user.id)
+      .order('snapshot_date', { ascending: false });
+    if (error) throw error;
+    return (data ?? []).map(row => ({
+      id: row.id as string,
+      bankId: row.bank_id as string,
+      snapshotDate: row.snapshot_date as string,
+      balance: Number(row.balance),
+      createdAt: row.created_at as string,
+    }));
+  },
+
+  /**
+   * Upsert a balance snapshot for a given bank on a given date.
+   * Uses ON CONFLICT on the (user_id, bank_id, snapshot_date) unique index so
+   * that running it twice on the same day safely updates the existing row.
+   */
+  upsertBalanceSnapshot: async (bankId: string, snapshotDate: string, balance: number): Promise<BalanceSnapshot> => {
+    const user = await getSessionUser();
+    if (!user) throw new Error('Not authenticated');
+
+    const { data, error } = await supabase
+      .from('balance_snapshots')
+      .upsert(
+        {
+          user_id: user.id,
+          bank_id: bankId,
+          snapshot_date: snapshotDate,
+          balance,
+          created_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id,bank_id,snapshot_date' },
+      )
+      .select('id, bank_id, snapshot_date, balance, created_at')
+      .single();
+    if (error) throw error;
+
+    const row = data as Record<string, unknown>;
+    return {
+      id: row.id as string,
+      bankId: row.bank_id as string,
+      snapshotDate: row.snapshot_date as string,
+      balance: Number(row.balance),
+      createdAt: row.created_at as string,
+    };
   },
 
   // ─── Transfers ────────────────────────────────────────────────────────────

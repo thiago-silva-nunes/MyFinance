@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useFinance } from '@/context/FinanceContext';
 import { usePrivacy } from '@/context/PrivacyContext';
+import { computeBankBalanceAtDate } from '@/lib/balanceUtils';
 import { formatCurrency, formatShortDate } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -90,7 +91,7 @@ const BANK_TYPE_LABELS: Record<string, string> = {
 };
 
 export const Dashboard = () => {
-  const { transactions, scheduled, categories, cards, invoices, budgets, banks, transfers } = useFinance();
+  const { transactions, scheduled, categories, cards, invoices, budgets, banks, transfers, balanceSnapshots } = useFinance();
   const { hideValues } = usePrivacy();
   const [isTransactionFormOpen, setIsTransactionFormOpen] = React.useState(false);
   const [period, setPeriod] = useState<DashPeriod>('current_month');
@@ -232,24 +233,15 @@ export const Dashboard = () => {
       .slice(0, 3);
   }, [budgets, transactions, categories]);
 
-  // Bank balances — real-time (all transactions, not period-filtered)
+  // Bank balances — real-time (snapshot-aware: uses latest balance snapshot per bank if available)
   const { bankBalances, totalBankBalance } = useMemo(() => {
     const map: Record<string, number> = {};
     for (const bank of banks) {
-      let bal = bank.initialBalance;
-      for (const t of transactions) {
-        if (t.bankId !== bank.id) continue;
-        bal += t.type === 'income' ? t.amount : -t.amount;
-      }
-      for (const tr of transfers) {
-        if (tr.fromBankId === bank.id) bal -= tr.amount;
-        if (tr.toBankId === bank.id)   bal += tr.amount;
-      }
-      map[bank.id] = bal;
+      map[bank.id] = computeBankBalanceAtDate(bank.id, bank, transactions, transfers, balanceSnapshots);
     }
     const total = Object.values(map).reduce((s, v) => s + v, 0);
     return { bankBalances: map, totalBankBalance: total };
-  }, [banks, transactions, transfers]);
+  }, [banks, transactions, transfers, balanceSnapshots]);
 
   const hasAlerts = highUsageCards.length > 0 || dueSoonInvoices.length > 0;
   const isCurrentMonth = period === 'current_month';

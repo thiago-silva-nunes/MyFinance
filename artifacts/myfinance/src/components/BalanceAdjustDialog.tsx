@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useFinance } from '@/context/FinanceContext';
-import { dataService } from '@/services/dataService';
 import { BankAccount } from '@/data/mockData';
+import { computeBankBalanceAtDate } from '@/lib/balanceUtils';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { CurrencyInput } from '@/components/ui/currency-input';
+import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Loader2, ArrowUp, ArrowDown } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 
 interface BalanceAdjustDialogProps {
@@ -19,53 +18,36 @@ interface BalanceAdjustDialogProps {
 }
 
 export function BalanceAdjustDialog({ open, onOpenChange, bank, currentBalance }: BalanceAdjustDialogProps) {
-  const { categories, addTransaction } = useFinance();
+  const { upsertBalanceSnapshot, transactions, transfers, banks, balanceSnapshots } = useFinance();
   const [realBalance, setRealBalance] = useState(0);
   const [touched, setTouched] = useState(false);
-  const [description, setDescription] = useState('Ajuste de saldo');
   const [loading, setLoading] = useState(false);
 
-  // Reset when dialog opens/closes
+  // Reset when dialog opens
   useEffect(() => {
     if (open) {
       setRealBalance(0);
       setTouched(false);
-      setDescription('Ajuste de saldo');
     }
   }, [open]);
 
-  const diff = realBalance - currentBalance;
-  const isZero = Math.abs(diff) < 0.005; // less than half a cent
+  // Recompute the "live" current balance from context data (same formula as Dashboard)
+  const liveBalance = bank
+    ? computeBankBalanceAtDate(bank.id, bank, transactions, transfers, balanceSnapshots)
+    : currentBalance;
 
-  const handleBalanceChange = (val: number) => {
-    setRealBalance(val);
-    setTouched(true);
-  };
+  const diff = realBalance - liveBalance;
+  const isZero = Math.abs(diff) < 0.005;
 
   const handleConfirm = async () => {
     if (!bank) return;
-
     if (isZero) {
-      toast.info('Saldo já está correto — nenhuma transação criada.');
+      toast.info('Saldo já está correto — nenhum marco de saldo criado.');
       return;
     }
 
     setLoading(true);
     try {
-      const type = diff > 0 ? 'income' : 'expense';
-
-      // Find an existing "Ajustes" category of the matching type, or create one
-      let adjustCat = categories.find(c => c.name === 'Ajustes' && c.type === type);
-      if (!adjustCat) {
-        adjustCat = await dataService.addCategory({
-          name: 'Ajustes',
-          type,
-          color: '#64748b',
-          icon: 'sliders',
-          dreGroup: type === 'income' ? 'receita' : 'despesa_variavel',
-        });
-      }
-
       const today = new Date();
       const todayStr = [
         today.getFullYear(),
@@ -73,21 +55,12 @@ export function BalanceAdjustDialog({ open, onOpenChange, bank, currentBalance }
         String(today.getDate()).padStart(2, '0'),
       ].join('-');
 
-      await addTransaction({
-        description: description.trim() || 'Ajuste de saldo',
-        amount: Math.abs(diff),
-        type,
-        categoryId: adjustCat.id,
-        date: todayStr,
-        status: 'paid',
-        bankId: bank.id,
-        isBalanceAdjustment: true,
-      });
+      await upsertBalanceSnapshot(bank.id, todayStr, realBalance);
 
-      toast.success('Ajuste de saldo registrado!');
+      toast.success('Marco de saldo registrado!');
       onOpenChange(false);
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Erro ao criar ajuste de saldo');
+      toast.error(err instanceof Error ? err.message : 'Erro ao salvar marco de saldo');
     } finally {
       setLoading(false);
     }
@@ -103,7 +76,7 @@ export function BalanceAdjustDialog({ open, onOpenChange, bank, currentBalance }
         <DialogHeader>
           <DialogTitle>Ajustar saldo — {bank.name}</DialogTitle>
           <DialogDescription>
-            Informe o saldo real da conta. O sistema criará uma transação de ajuste automaticamente.
+            Informe o saldo real da conta. O sistema registrará um marco de saldo — nenhuma transação será criada.
           </DialogDescription>
         </DialogHeader>
 
@@ -111,8 +84,8 @@ export function BalanceAdjustDialog({ open, onOpenChange, bank, currentBalance }
           {/* Current balance (read-only) */}
           <div className="rounded-lg bg-muted/50 border px-4 py-3 space-y-0.5">
             <p className="text-xs text-muted-foreground">Saldo atual calculado pelo app</p>
-            <p className={`text-2xl font-bold ${currentBalance >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
-              {formatCurrency(currentBalance)}
+            <p className={`text-2xl font-bold ${liveBalance >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
+              {formatCurrency(liveBalance)}
             </p>
           </div>
 
@@ -122,38 +95,26 @@ export function BalanceAdjustDialog({ open, onOpenChange, bank, currentBalance }
             <CurrencyInput
               id="real-balance"
               value={realBalance}
-              onChange={handleBalanceChange}
+              onChange={(val) => { setRealBalance(val); setTouched(true); }}
               placeholder="0,00"
               autoFocus
             />
           </div>
 
-          {/* Description */}
-          <div className="space-y-1.5">
-            <Label htmlFor="adj-desc">Descrição da transação</Label>
-            <Input
-              id="adj-desc"
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              placeholder="Ajuste de saldo"
-            />
-          </div>
-
-          {/* Difference preview */}
+          {/* Preview */}
           {touched && (
             isZero ? (
               <div className="rounded-lg bg-muted px-4 py-3 text-sm text-muted-foreground text-center">
-                Saldo já está correto — nenhuma transação será criada.
+                Saldo já está correto — nenhum marco de saldo será criado.
               </div>
             ) : (
-              <div className={`rounded-lg px-4 py-3 space-y-0.5 ${diff > 0 ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800' : 'bg-destructive/5 border border-destructive/20'}`}>
-                <div className={`flex items-center gap-2 text-sm font-medium ${diff > 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive'}`}>
-                  {diff > 0
-                    ? <><ArrowUp className="w-4 h-4" /> Receita de ajuste: {formatCurrency(Math.abs(diff))}</>
-                    : <><ArrowDown className="w-4 h-4" /> Despesa de ajuste: {formatCurrency(Math.abs(diff))}</>}
-                </div>
+              <div className="rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 px-4 py-3 space-y-1">
+                <p className="text-sm font-medium text-blue-700 dark:text-blue-400">
+                  Marco de saldo: {formatCurrency(realBalance)}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  Será criada na categoria <strong>Ajustes</strong>, status pago, data de hoje.
+                  Diferença de {formatCurrency(Math.abs(diff))} {diff > 0 ? 'a mais' : 'a menos'} em relação ao calculado.
+                  Nenhuma transação será criada.
                 </p>
               </div>
             )
@@ -166,7 +127,7 @@ export function BalanceAdjustDialog({ open, onOpenChange, bank, currentBalance }
           </Button>
           <Button onClick={handleConfirm} disabled={!canConfirm || (touched && isZero)}>
             {loading
-              ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Criando...</>
+              ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Salvando...</>
               : 'Confirmar ajuste'}
           </Button>
         </DialogFooter>

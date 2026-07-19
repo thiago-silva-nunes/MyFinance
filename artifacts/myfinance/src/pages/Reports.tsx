@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useFinance } from '@/context/FinanceContext';
 import { dataService } from '@/services/dataService';
 import { formatCurrency, parseLocalDate } from '@/lib/utils';
+import { computeBankBalanceAtDate } from '@/lib/balanceUtils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
@@ -11,7 +12,7 @@ import {
 } from 'recharts';
 
 export const Reports = () => {
-  const { categories, subcategories } = useFinance();
+  const { categories, subcategories, banks, transfers, balanceSnapshots } = useFinance();
   // Full transaction history — not limited to 12 months, for accurate multi-month charts
   const { data: transactions = [] } = useQuery({
     queryKey: ['transactions', 'all'],
@@ -64,23 +65,37 @@ export const Reports = () => {
       Despesas: monthlyMap[key].expense
     }));
 
-    // Balance over time (accumulative) — INCLUDES balance-adjustment transactions so the
-    // running balance reflects actual account reconciliation, not just P&L deltas.
-    const allPaidMonthlyMap: Record<string, { income: number; expense: number; name: string }> = {};
+    // Balance over time — snapshot-aware, computed per bank per month-end.
+    // For each month: sum of computeBankBalanceAtDate(..., lastDayOfMonth) across all banks.
+    // This correctly anchors to any balance snapshot in history.
+    //
+    // Collect all months that have at least one transaction or one snapshot.
+    const monthSet = new Set<string>();
     paidTxs.forEach(t => {
       const d = parseLocalDate(t.date);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      if (!allPaidMonthlyMap[key]) {
-        allPaidMonthlyMap[key] = { income: 0, expense: 0, name: d.toLocaleString('pt-BR', { month: 'short', year: '2-digit' }) };
-      }
-      if (t.type === 'income') allPaidMonthlyMap[key].income += t.amount;
-      else allPaidMonthlyMap[key].expense += t.amount;
+      monthSet.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
     });
-    const allSortedMonths = Object.keys(allPaidMonthlyMap).sort();
-    let cumulative = 0;
+    balanceSnapshots.forEach(s => {
+      monthSet.add(s.snapshotDate.slice(0, 7)); // YYYY-MM
+    });
+
+    const allSortedMonths = Array.from(monthSet).sort();
+
     const balanceOverTime = allSortedMonths.map(key => {
-      cumulative += (allPaidMonthlyMap[key].income - allPaidMonthlyMap[key].expense);
-      return { name: allPaidMonthlyMap[key].name, Saldo: cumulative };
+      const [y, m] = key.split('-').map(Number);
+      // Last day of month
+      const lastDay = new Date(y, m, 0).getDate();
+      const atDate = `${key}-${String(lastDay).padStart(2, '0')}`;
+
+      const totalBalance = banks.reduce((sum, bank) => {
+        return sum + computeBankBalanceAtDate(bank.id, bank, transactions, transfers, balanceSnapshots, atDate);
+      }, 0);
+
+      const d = new Date(y, m - 1, 1);
+      return {
+        name: d.toLocaleString('pt-BR', { month: 'short', year: '2-digit' }),
+        Saldo: totalBalance,
+      };
     });
 
     // Expenses for pie chart — current month, optionally filtered by category.
@@ -145,7 +160,7 @@ export const Reports = () => {
     }
 
     return { monthlyData, expensesByGroup, balanceOverTime };
-  }, [transactions, categories, subcategories, filterCategoryId, groupBy]);
+  }, [transactions, categories, subcategories, filterCategoryId, groupBy, banks, transfers, balanceSnapshots]);
 
   const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) => {
     if (active && payload && payload.length) {

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Category, Subcategory, Transaction, ScheduledTransaction, CreditCard, Invoice, Budget, BankAccount, BudgetGroup, Transfer } from '../data/mockData';
+import type { BalanceSnapshot } from '../lib/balanceUtils';
 import { dataService } from '../services/dataService';
 import { useAuth } from './AuthContext';
 import {
@@ -13,16 +14,17 @@ import {
 // ─── Query Keys ──────────────────────────────────────────────────────────────
 
 const QK = {
-  categories:   () => ['categories']   as const,
-  subcategories:() => ['subcategories']as const,
-  transactions: () => ['transactions'] as const,
-  scheduled:    () => ['scheduled']    as const,
-  cards:        () => ['cards']        as const,
-  invoices:     () => ['invoices']     as const,
-  budgets:      () => ['budgets']      as const,
-  budgetGroups: () => ['budgetGroups'] as const,
-  banks:        () => ['banks']        as const,
-  transfers:    () => ['transfers']    as const,
+  categories:       () => ['categories']       as const,
+  subcategories:    () => ['subcategories']    as const,
+  transactions:     () => ['transactions']     as const,
+  scheduled:        () => ['scheduled']        as const,
+  cards:            () => ['cards']            as const,
+  invoices:         () => ['invoices']         as const,
+  budgets:          () => ['budgets']          as const,
+  budgetGroups:     () => ['budgetGroups']     as const,
+  banks:            () => ['banks']            as const,
+  transfers:        () => ['transfers']        as const,
+  balanceSnapshots: () => ['balanceSnapshots'] as const,
 };
 
 export { QK as FINANCE_QUERY_KEYS };
@@ -40,6 +42,7 @@ interface FinanceContextType {
   budgetGroups: BudgetGroup[];
   banks: BankAccount[];
   transfers: Transfer[];
+  balanceSnapshots: BalanceSnapshot[];
   settings: { currency: string; theme: 'light' | 'dark' };
   loading: boolean;
 
@@ -88,6 +91,8 @@ interface FinanceContextType {
   addBank: (data: Omit<BankAccount, 'id'>) => Promise<void>;
   updateBank: (id: string, data: Partial<BankAccount>) => Promise<void>;
   deleteBank: (id: string) => Promise<void>;
+
+  upsertBalanceSnapshot: (bankId: string, snapshotDate: string, balance: number) => Promise<void>;
 
   addTransfer: (data: Omit<Transfer, 'id'>) => Promise<void>;
   updateTransfer: (id: string, data: Partial<Transfer>) => Promise<void>;
@@ -211,11 +216,18 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     staleTime: STALE_TIME,
   });
 
+  const { data: balanceSnapshots = [], isPending: snapshotsPending } = useQuery({
+    queryKey: QK.balanceSnapshots(),
+    queryFn: () => dataService.getBalanceSnapshots().catch(() => [] as BalanceSnapshot[]),
+    enabled,
+    staleTime: STALE_TIME,
+  });
+
   // Loading = true only while user is logged in AND any query hasn't resolved yet
   const loading = enabled && (
     catsPending || subcatsPending || txnsPending || schedPending ||
     cardsPending || invoicesPending || budgetsPending ||
-    budgetGroupsPending || banksPending || transfersPending
+    budgetGroupsPending || banksPending || transfersPending || snapshotsPending
   );
 
   // ─── Auto-geração de pendentes recorrentes ─────────────────────────────────
@@ -455,6 +467,16 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     queryClient.setQueryData(QK.banks(), (old: BankAccount[] = []) => old.filter(x => x.id !== id));
   };
 
+  // ─── Balance Snapshot actions ──────────────────────────────────────────────
+  const upsertBalanceSnapshot = async (bankId: string, snapshotDate: string, balance: number) => {
+    const snap = await dataService.upsertBalanceSnapshot(bankId, snapshotDate, balance);
+    queryClient.setQueryData(QK.balanceSnapshots(), (old: BalanceSnapshot[] = []) => {
+      // Replace existing snapshot for same bank+date, or prepend new one
+      const filtered = old.filter(s => !(s.bankId === bankId && s.snapshotDate === snapshotDate));
+      return [snap, ...filtered];
+    });
+  };
+
   // ─── Transfer actions ─────────────────────────────────────────────────────
   const addTransfer = async (data: Omit<Transfer, 'id'>) => {
     const created = await dataService.addTransfer(data);
@@ -485,7 +507,7 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   return (
     <FinanceContext.Provider value={{
       categories, subcategories, transactions, scheduled, cards, invoices,
-      budgets, budgetGroups, banks, transfers,
+      budgets, budgetGroups, banks, transfers, balanceSnapshots,
       settings, loading,
       refreshData, loadMoreTransactions, hasMoreTransactions,
       addCategory, updateCategory, deleteCategory,
@@ -497,6 +519,7 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
       addBudget, updateBudget, deleteBudget,
       addBudgetGroup, updateBudgetGroup, deleteBudgetGroup,
       addBank, updateBank, deleteBank,
+      upsertBalanceSnapshot,
       addTransfer, updateTransfer, deleteTransfer,
       updateSettings, loadSampleData,
     }}>

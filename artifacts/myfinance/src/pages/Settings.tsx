@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useFinance } from '@/context/FinanceContext';
+import { computeBankBalanceAtDate } from '@/lib/balanceUtils';
 import { useAuth } from '@/context/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -31,25 +32,16 @@ const ACCOUNT_TYPE_LABELS: Record<string, string> = {
 };
 
 function BanksPanel() {
-  const { banks, deleteBank, transactions, transfers } = useFinance();
+  const { banks, deleteBank, transactions, transfers, balanceSnapshots } = useFinance();
 
-  // Calculate current balance per bank: initialBalance + income txns - expense txns - sent transfers + received transfers
+  // Snapshot-aware balance: uses latest balance snapshot per bank when available
   const bankBalances = useMemo(() => {
     const map: Record<string, number> = {};
     for (const bank of banks) {
-      let balance = bank.initialBalance;
-      for (const t of transactions) {
-        if (t.bankId !== bank.id) continue;
-        balance += t.type === 'income' ? t.amount : -t.amount;
-      }
-      for (const tr of transfers) {
-        if (tr.fromBankId === bank.id) balance -= tr.amount;
-        if (tr.toBankId === bank.id)   balance += tr.amount;
-      }
-      map[bank.id] = balance;
+      map[bank.id] = computeBankBalanceAtDate(bank.id, bank, transactions, transfers, balanceSnapshots);
     }
     return map;
-  }, [banks, transactions, transfers]);
+  }, [banks, transactions, transfers, balanceSnapshots]);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<BankAccount | null>(null);
