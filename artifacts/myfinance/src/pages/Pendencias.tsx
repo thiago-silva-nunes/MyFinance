@@ -52,12 +52,19 @@ export const Pendencias = () => {
   const today = getTodayStr();
   const in7days = addDays(today, 7);
   const monthPrefix = getCurrentMonthPrefix();
+  // Last calendar day of the current month as YYYY-MM-DD
+  const endOfMonth = (() => {
+    const now = new Date();
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    return `${monthPrefix}-${String(lastDay).padStart(2, '0')}`;
+  })();
 
   // ── Derived lists ──────────────────────────────────────────────────────────
 
   const {
     overdueExpenses, dueSoon, openInvoices, pendingIncome,
-    totalOverdue, totalInvoices, totalToReceive,
+    totalEmAberto, projectionExpensesSum, projectionIncomeSum, projectionInvoicesSum,
+    totalToReceive,
   } = useMemo(() => {
     // All pending expense transactions, date < today → overdue
     const overdue = transactions.filter(
@@ -74,13 +81,28 @@ export const Pendencias = () => {
       inv => inv.status === 'closed' || inv.status === 'overdue',
     ).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 
-    // Pending income
+    // Pending income (all, for display)
     const income = transactions.filter(
       t => t.type === 'income' && t.status === 'pending',
     ).sort((a, b) => a.date.localeCompare(b.date));
 
-    const sumOverdue = overdue.reduce((s, t) => s + t.amount, 0);
-    const sumInv = invOpen.reduce((s, inv) => s + inv.totalAmount, 0);
+    // ── Projection components (bounded to end of current month) ──────────────
+
+    // All pending expenses with date <= end-of-month (overdue + upcoming)
+    const monthExpenseSum = transactions
+      .filter(t => t.type === 'expense' && t.status === 'pending' && t.date <= endOfMonth)
+      .reduce((s, t) => s + t.amount, 0);
+
+    // Open invoices with dueDate <= end-of-month
+    const monthInvoiceSum = invOpen
+      .filter(inv => inv.dueDate <= endOfMonth)
+      .reduce((s, inv) => s + inv.totalAmount, 0);
+
+    // Pending income with date <= end-of-month
+    const monthIncomeSum = income
+      .filter(t => t.date <= endOfMonth)
+      .reduce((s, t) => s + t.amount, 0);
+
     const sumIncome = income.reduce((s, t) => s + t.amount, 0);
 
     return {
@@ -88,13 +110,16 @@ export const Pendencias = () => {
       dueSoon: soon,
       openInvoices: invOpen,
       pendingIncome: income,
-      totalOverdue: sumOverdue,
-      totalInvoices: sumInv,
+      // Unified: "Total em aberto" = all pending within month (matches projection)
+      totalEmAberto: monthExpenseSum + monthInvoiceSum,
+      projectionExpensesSum: monthExpenseSum,
+      projectionIncomeSum: monthIncomeSum,
+      projectionInvoicesSum: monthInvoiceSum,
       totalToReceive: sumIncome,
     };
-  }, [transactions, invoices, today, in7days]);
+  }, [transactions, invoices, today, in7days, endOfMonth]);
 
-  // Filtered income for the toggle
+  // Filtered income for the toggle (display only)
   const filteredIncome = useMemo(() => {
     if (receiveFilter === 'month') {
       return pendingIncome.filter(t => t.date.startsWith(monthPrefix));
@@ -104,14 +129,17 @@ export const Pendencias = () => {
 
   const filteredToReceive = filteredIncome.reduce((s, t) => s + t.amount, 0);
 
-  // Bank balance total
-  const totalBankBalance = useMemo(() => {
+  // Real current balance = only paid transactions, bounded to today
+  // (pending transactions are not yet in the bank — they're projected separately)
+  const realBankBalance = useMemo(() => {
+    const paidTxs = transactions.filter(t => t.status === 'paid');
     return banks.reduce((sum, bank) => {
-      return sum + computeBankBalanceAtDate(bank.id, bank, transactions, transfers, balanceSnapshots);
+      return sum + computeBankBalanceAtDate(bank.id, bank, paidTxs, transfers, balanceSnapshots, today);
     }, 0);
-  }, [banks, transactions, transfers, balanceSnapshots]);
+  }, [banks, transactions, transfers, balanceSnapshots, today]);
 
-  const projection = totalBankBalance + totalToReceive - (totalOverdue + totalInvoices);
+  // Projection = real paid balance + expected income this month − expected expenses this month
+  const projection = realBankBalance + projectionIncomeSum - (projectionExpensesSum + projectionInvoicesSum);
   const totalOpenCount = overdueExpenses.length + openInvoices.length;
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -155,18 +183,24 @@ export const Pendencias = () => {
         {/* Total a pagar */}
         <Card className={cn('border-l-4', totalOpenCount > 0 ? 'border-l-destructive/60' : 'border-l-muted')}>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Total em aberto (a pagar)</CardTitle>
+            <CardTitle className="text-sm font-medium">Total a pagar no mês</CardTitle>
             <div className="bg-destructive/10 p-2 rounded-full">
               <TrendingDown className="w-4 h-4 text-destructive" />
             </div>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-destructive">
-              {mask(totalOverdue + totalInvoices)}
+              {mask(totalEmAberto)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {overdueExpenses.length} conta{overdueExpenses.length !== 1 ? 's' : ''} atrasada{overdueExpenses.length !== 1 ? 's' : ''}
-              {openInvoices.length > 0 && ` · ${openInvoices.length} fatura${openInvoices.length !== 1 ? 's' : ''} de cartão`}
+              {overdueExpenses.length > 0 && (
+                <span className="text-destructive font-medium">{overdueExpenses.length} vencida{overdueExpenses.length !== 1 ? 's' : ''}</span>
+              )}
+              {overdueExpenses.length > 0 && (dueSoon.length > 0 || openInvoices.length > 0) && ' · '}
+              {dueSoon.length > 0 && `${dueSoon.length} a vencer`}
+              {dueSoon.length > 0 && openInvoices.length > 0 && ' · '}
+              {openInvoices.length > 0 && `${openInvoices.length} fatura${openInvoices.length !== 1 ? 's' : ''}`}
+              {overdueExpenses.length === 0 && dueSoon.length === 0 && openInvoices.length === 0 && 'Nenhuma pendência este mês'}
             </p>
           </CardContent>
         </Card>

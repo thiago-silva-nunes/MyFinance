@@ -1,0 +1,30 @@
+Preciso corrigir dois bugs: a Projeção de saldo em Pendências não considera corretamente receitas/despesas ao longo do tempo, e o calendário do DatePicker está com visual quebrado.
+
+═══════════════════════════════════════════
+1. CORRIGIR A PROJEÇÃO DE SALDO EM /pendencias
+═══════════════════════════════════════════
+a) GARANTIR ATUALIZAÇÃO EM TEMPO REAL APÓS QUALQUER PAGAMENTO
+- Sempre que uma transação (receita ou despesa) tiver o status alterado para 'paid' — seja pelo toggle em Transações, pelo botão "Marcar como paga" em Pendências/Recorrentes, ou pelo ConfirmPaymentDialog — garanta que TANTO a query de transactions QUANTO o cálculo de saldo das contas bancárias (balanceSnapshots/computeBankBalanceAtDate) sejam invalidados/recalculados imediatamente no context/FinanceContext.tsx, sem precisar recarregar a página. Isso pode estar sendo perdido especificamente no fluxo de pagar uma receita pendente — audite esse caminho especificamente.
+- Teste: marque uma receita pendente como recebida em /pendencias e confirme que ela some de "A receber" E que o "Saldo atual"/"Projeção" no mesmo instante já refletem esse valor somado, sem F5.
+
+b) CORRIGIR A FÓRMULA DA PROJEÇÃO PARA CONSIDERAR TODO O PERÍODO, NÃO SÓ O QUE JÁ VENCEU
+- Hoje "Total em aberto" (usado na Projeção) provavelmente soma só despesas JÁ VENCIDAS + faturas closed/overdue. Isso faz a Projeção ficar otimista demais, ignorando despesas pendentes que ainda vão vencer dentro do mês/período selecionado (ex: uma recorrência que vence dia 25, mas hoje é dia 19 — ainda não está atrasada, mas vai sair da conta antes do fim do mês).
+- Corrija a fórmula da Projeção especificamente (mantenha as seções "Contas atrasadas" e "A vencer nos próximos 7 dias" exibindo o que exibem hoje, só ajuste o CÁLCULO da projeção) para:
+  Projeção = saldo atual real das contas bancárias (via computeBankBalanceAtDate, hoje)
+           + soma de TODAS as receitas pendentes com data dentro do período selecionado (não só as já vencidas)
+           − soma de TODAS as despesas pendentes com data dentro do período selecionado (recorrentes + avulsas + faturas em aberto que vencem dentro do período), não só as já vencidas.
+- Deixe claro na UI a diferença entre "Total em aberto" exibido nos cards (que pode continuar mostrando só o vencido, se fizer mais sentido visualmente) e o valor realmente usado internamente na Projeção — ou, mais simples, unifique os dois: se o "Total em aberto" mostrado no card também passar a somar tudo que vence no período (vencido + a vencer), evita qualquer confusão entre o número exibido e o usado na conta.
+- Teste: crie uma despesa pendente com vencimento daqui a 5 dias (ainda dentro do mês) e confirme que ela JÁ impacta a Projeção antes mesmo de vencer.
+
+═══════════════════════════════════════════
+2. CORRIGIR O VISUAL DO CALENDÁRIO (components/ui/date-picker.tsx e components/ui/calendar.tsx)
+═══════════════════════════════════════════
+- O DatePicker usa captionLayout="dropdown", mas o componente base Calendar (components/ui/calendar.tsx) não tem um Dropdown customizado, então o react-day-picker renderiza <select> nativos do navegador (sem nenhum estilo, cortando o visual do app).
+- Adicione um componente Dropdown customizado no override `components` passado ao DayPicker dentro de calendar.tsx, estilizado com as mesmas classes usadas no restante do design system (Select do shadcn/Tailwind), para que os seletores de mês e ano fiquem visualmente consistentes (borda arredondada, fundo, hover, mesma tipografia do resto do app).
+- Confirme que o PopoverContent em date-picker.tsx tem sombra, borda e z-index suficientes para aparecer corretamente por cima do formulário (hoje parece flutuar sem destaque visual nenhum), e que ele não fica cortado/deslocado quando o campo Data está perto da borda direita do dialog (ajuste side/align do Popover se necessário, ex: side="bottom" align="start" sideOffset={4}).
+- Teste abrindo o calendário dentro do formulário de Nova Transação, tanto para o campo Data quanto Data de início (recorrência) e Data fim, em desktop.
+
+IMPORTANTE:
+- Não altere o formato de armazenamento das datas (continua YYYY-MM-DD) nem o comportamento de digitar a data manualmente no campo de texto (dd/mm/aaaa).
+- Não quebre a Projeção para os cenários que já funcionam hoje (contas atrasadas + faturas).
+- Rode pnpm run typecheck ao final e liste os arquivos alterados.

@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { DayButton, DayPicker, getDefaultClassNames } from 'react-day-picker';
+import { DayButton, DayPicker, getDefaultClassNames, type DropdownProps } from 'react-day-picker';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
@@ -154,6 +154,7 @@ function Calendar({
             <ChevronDownIcon className={cn('size-4', className)} {...props} />
           );
         },
+        Dropdown: CalendarDropdown,
         DayButton: CalendarDayButton,
         WeekNumber: ({ children, ...props }) => {
           return (
@@ -168,6 +169,27 @@ function Calendar({
       }}
       {...props}
     />
+  );
+}
+
+function CalendarDropdown({ value, onChange, options }: DropdownProps) {
+  return (
+    <select
+      value={value}
+      onChange={onChange}
+      className={cn(
+        'h-8 rounded-md border border-input bg-background px-2 text-sm font-medium text-foreground',
+        'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1',
+        'cursor-pointer transition-colors hover:bg-accent hover:text-accent-foreground',
+        'appearance-none',
+      )}
+    >
+      {options?.map(opt => (
+        <option key={opt.value} value={opt.value} disabled={opt.disabled}>
+          {opt.label}
+        </option>
+      ))}
+    </select>
   );
 }
 

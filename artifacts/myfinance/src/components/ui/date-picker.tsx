@@ -106,7 +106,12 @@ export const DatePicker = ({
             <CalendarIcon className="w-4 h-4" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" align="start">
+        <PopoverContent
+          className="w-auto p-0 shadow-lg border"
+          side="bottom"
+          align="start"
+          sideOffset={4}
+        >
           <Calendar
             mode="single"
             selected={selectedDate}
