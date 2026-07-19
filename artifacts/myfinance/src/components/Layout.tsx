@@ -11,6 +11,7 @@ import { useFinance } from '@/context/FinanceContext';
 import { useAuth } from '@/context/AuthContext';
 import { usePrivacy } from '@/context/PrivacyContext';
 import { TransactionFormDialog } from '@/components/TransactionFormDialog';
+import { FloatingCalculator } from '@/components/FloatingCalculator';
 import { toast } from 'sonner';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
@@ -158,6 +159,9 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
           {children}
         </div>
       </main>
+
+      {/* ── Floating Calculator ──────────────────────────────────────────── */}
+      <FloatingCalculator />
 
       {/* ── Mobile FAB ───────────────────────────────────────────────────── */}
       <button onClick={() => setAddOpen(true)}

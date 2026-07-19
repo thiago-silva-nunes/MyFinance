@@ -139,6 +139,10 @@ interface TransactionFormProps {
   defaultCardId?: string;
   /** When set, pre-fills the form with these values but saves as a NEW transaction (duplicate mode). */
   duplicateFrom?: Transaction | null;
+  /** Pre-fills the amount field when opening a new (non-edit, non-duplicate) transaction. */
+  initialAmount?: number;
+  /** Called after a successful save (not on cancel). */
+  onSuccess?: () => void;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -149,6 +153,8 @@ export const TransactionFormDialog = ({
   editingScheduled,
   defaultCardId,
   duplicateFrom,
+  initialAmount,
+  onSuccess,
 }: TransactionFormProps) => {
   const {
     categories,
@@ -276,7 +282,7 @@ export const TransactionFormDialog = ({
       // New transaction / new recurring
       setIsRecurring(false);
       form.reset({
-        description: '', amount: 0, type: 'expense',
+        description: '', amount: initialAmount ?? 0, type: 'expense',
         categoryId: '', subcategoryId: '', dreGroupOverride: '', notes: '',
         date: new Date().toISOString().split('T')[0],
         status: 'paid',
@@ -411,6 +417,7 @@ export const TransactionFormDialog = ({
         }
       }
       onOpenChange(false);
+      onSuccess?.();
     } catch (err: unknown) {
       const { extractErrorMessage } = await import('@/services/dataService');
       toast.error(`Erro ao salvar: ${extractErrorMessage(err)}`);

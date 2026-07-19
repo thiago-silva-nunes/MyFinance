@@ -1,0 +1,25 @@
+Preciso adicionar uma calculadora fixa e persistente no MyFinance, que permite somar valores e transformar o resultado direto em um lançamento.
+
+1. CRIAR O COMPONENTE DA CALCULADORA
+- Crie components/FloatingCalculator.tsx: uma calculadora básica (display + teclado numérico 0-9, ponto decimal, +, −, ×, ÷, =, C para limpar, e um botão de apagar último dígito/backspace).
+- Lógica sequencial simples (como calculadora física: número → operador → número → operador... → =), sem precisar de biblioteca de parsing de expressão. Mantenha o estado internamente (valor atual, operador pendente, valor acumulado).
+- Formate o display seguindo o padrão brasileiro (vírgula como separador decimal, ponto como milhar), reaproveitando a lógica de formatação já usada no CurrencyInput/formatCurrency do projeto.
+
+2. POSICIONAMENTO: PAINEL FIXO NO DESKTOP, RECOLHÍVEL EM QUALQUER TELA
+- Em desktop (md+): um painel fixo (position: fixed) encostado na borda direita da tela, verticalmente centralizado, com uma abinha/botão para recolher/expandir (quando recolhido, mostra só um ícone de calculadora; quando expandido, mostra a calculadora completa). Lembre de não sobrepor conteúdo importante — pode ficar como uma barra estreita que expande ao clicar.
+- Em mobile: em vez de painel fixo lateral (não cabe bem), use um botão flutuante (FAB) no canto inferior direito que abre a calculadora num Sheet/Drawer (bottom sheet), reaproveitando o mesmo componente de calculadora.
+- Renderize esse componente uma única vez em components/Layout.tsx (não em cada página), para que fique disponível e mantenha seu estado ao navegar entre as telas — a calculadora não deve resetar o valor ao trocar de página, só quando o usuário limpar manualmente ou finalizar um lançamento a partir dela.
+
+3. BOTÃO "LANÇAR COMO TRANSAÇÃO"
+- Abaixo do display da calculadora, adicione um botão "Lançar como transação" (desabilitado se o valor for 0).
+- Ao clicar, abra o TransactionFormDialog (o mesmo componente já usado em Transações/Dashboard/Recorrentes) com o valor atual da calculadora pré-preenchido no campo Valor. Para isso, adicione uma nova prop opcional em components/TransactionFormDialog.tsx, ex: `initialAmount?: number`, que preenche o campo amount do formulário na abertura (sem afetar o comportamento normal quando essa prop não for passada).
+- O FloatingCalculator deve renderizar e controlar seu próprio TransactionFormDialog internamente (open/onOpenChange local), já que esse componente já é autossuficiente e reaproveitável — não precisa de nenhuma mudança no FinanceContext para isso.
+- Depois de salvar o lançamento com sucesso, limpe o valor da calculadora automaticamente (volta a mostrar 0), já que aquele valor "virou" o lançamento.
+
+4. UX DE SOMA RÁPIDA
+- Deixe claro visualmente qual é o "total acumulado" enquanto o usuário soma vários valores (ex: mostrar o valor atual em destaque e, menor, embaixo, a operação em andamento, tipo "125,90 + 34,50").
+
+IMPORTANTE:
+- Não deixe a calculadora sobrepor botões importantes de nenhuma tela (Nova Transação, ações de tabela, etc.) — teste em Dashboard, Transações e Recorrentes.
+- A calculadora deve funcionar tanto para valores positivos simples (soma de despesas) quanto permitir digitar qualquer operação — sem julgar se o resultado "faz sentido" como transação.
+- Rode pnpm run typecheck ao final e liste os arquivos criados/alterados.
