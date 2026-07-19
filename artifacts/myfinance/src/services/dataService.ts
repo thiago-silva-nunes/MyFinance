@@ -356,18 +356,40 @@ export const dataService = {
     const from = opts?.from ?? defaultFrom.toISOString().split('T')[0];
     const limit = opts?.limit ?? 200;
 
-    let query = supabase
+    // Non-pending transactions are bounded by date window + limit to keep the initial load fast.
+    // Pending transactions are fetched separately with NO limit and NO date bound — overdue items
+    // from months ago must never be silently cut off by pagination, because bank-balance
+    // projections and the Pendências page depend on the complete pending set.
+    let paidQuery = supabase
       .from('transactions')
       .select(TX_SELECT)
       .gte('date', from)
+      .neq('status', 'pending')
       .order('date', { ascending: false })
       .limit(limit);
+    if (opts?.to) paidQuery = paidQuery.lte('date', opts.to);
 
-    if (opts?.to) query = query.lte('date', opts.to);
+    const pendingQuery = supabase
+      .from('transactions')
+      .select(TX_SELECT)
+      .eq('status', 'pending')
+      .order('date', { ascending: false });
 
-    const { data, error } = await query;
-    if (error) throw error;
-    return (data ?? []).map((row) => mapTxRow(row as Record<string, unknown>));
+    const [{ data: paidData, error: paidError }, { data: pendingData, error: pendingError }] =
+      await Promise.all([paidQuery, pendingQuery]);
+
+    if (paidError) throw paidError;
+    if (pendingError) throw pendingError;
+
+    // Merge: pending first so dedup keeps them when status changes mid-flight
+    const seen = new Set<string>();
+    const merged = [...(pendingData ?? []), ...(paidData ?? [])].filter(row => {
+      if (seen.has(row.id as string)) return false;
+      seen.add(row.id as string);
+      return true;
+    });
+
+    return merged.map((row) => mapTxRow(row as Record<string, unknown>));
   },
 
   /**

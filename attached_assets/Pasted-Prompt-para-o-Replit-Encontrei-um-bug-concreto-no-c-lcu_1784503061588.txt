@@ -1,0 +1,24 @@
+Prompt para o Replit:
+
+Encontrei um bug concreto no cálculo do "Saldo Previsto" das Contas Bancárias no Dashboard: as despesas pendentes não estão sendo descontadas, só as receitas pendentes estão sendo somadas.
+Prova com números reais (conta Nubank)
+
+Saldo Real exibido: R$ 1.218,59
+Saldo Previsto exibido: R$ 4.018,59
+Diferença aplicada: +R$ 2.800,00
+
+Na tela de Transações, filtrando por Conta = Nubank e Status = Pendente, as pendências dentro do período (até 31/07) são:
+DescriçãoDataValorTipoSalario Greif30/07+R$ 2.800,00ReceitaMRV - Entrada19/07-R$ 398,01DespesaParcela Apê - Porto Lisboa17/07-R$ 881,47DespesaCota Porto Lisboa10/07-R$ 391,46DespesaRGE18/06-R$ 237,84DespesaParcela Apê - Porto Lisboa17/06-R$ 895,20DespesaCota Porto Lisboa10/06-R$ 524,59DespesaMRV - Entrada08/06-R$ 398,01DespesaMRV - Entrada08/05-R$ 421,14Despesa
+(A pendência de 17/09 fica corretamente de fora, por estar fora do período "até 31/07".)
+A diferença aplicada (+R$ 2.800,00) bate só com a receita pendente (Salário Greif). Nenhuma das 8 despesas pendentes foi subtraída. O valor correto de Saldo Previsto do Nubank deveria ser aproximadamente:
+1.218,59 + 2.800,00 - 398,01 - 881,47 - 391,46 - 237,84 - 895,20 - 524,59 - 398,01 - 421,14 ≈ -1.129,13
+Muito diferente dos R$ 4.018,59 mostrados hoje. (No Bradesco, o bug não apareceu visivelmente porque só havia 1 pendência de despesa e ela foi descontada certa — o que mascarou o problema até agora.)
+O que preciso que você faça
+
+Localize o trecho de código que calcula o "Saldo Previsto" de cada conta no Dashboard (a função que soma bankBalances/projectedBalance a partir do saldo real + transações pendentes).
+Verifique se o reduce/loop que soma as pendências está tratando corretamente o sinal por type: receitas (type === 'income') devem somar, despesas (type === 'expense') devem subtrair. É provável que o código esteja usando t.amount diretamente sem considerar o type, ou que o filtro esteja excluindo despesas pendentes por engano (ex: um filtro de status ou tipo mal configurado que só deixa passar receitas).
+Corrija a lógica para que todas as transações pendentes da conta dentro do período (receitas E despesas) sejam somadas com o sinal correto.
+Depois de corrigir, recalcule o Saldo Previsto do Nubank e confirme que bate com a conta manual acima (aproximadamente -R$ 1.129,13). Faça o mesmo para Bradesco e Flash e me mostre os 3 valores corrigidos.
+Antes de finalizar, rode a mesma validação para o "Saldo total" do card (soma dos previstos de todas as contas) e para o card "Projeção ao fim do mês" da tela de Pendências, garantindo que todos os lugares que calculam previsão de saldo usem a mesma lógica corrigida — não só o card do Dashboard.
+
+Me mostre os valores recalculados de cada conta antes de considerar concluído.

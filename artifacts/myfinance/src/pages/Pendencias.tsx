@@ -83,8 +83,9 @@ export const Pendencias = () => {
     // ── Projection components (bounded to end of current month) ──────────────
 
     // All pending expenses with date <= end-of-month (overdue + upcoming)
+    // Exclude balance-adjustment transactions — they don't represent real cash outflows.
     const monthExpenseSum = transactions
-      .filter(t => t.type === 'expense' && t.status === 'pending' && t.date <= endOfMonth)
+      .filter(t => t.type === 'expense' && t.status === 'pending' && t.date <= endOfMonth && !t.isBalanceAdjustment)
       .reduce((s, t) => s + t.amount, 0);
 
     // Open invoices with dueDate <= end-of-month

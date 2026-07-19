@@ -261,9 +261,15 @@ export const Dashboard = () => {
       // so only future transfers (date > today) are added here to avoid double-counting.
       let proj = actual;
       for (const t of transactions) {
-        if (t.bankId !== bank.id || t.status !== 'pending') continue;
-        if (t.date > periodEnd) continue; // include overdue (date <= today) + upcoming
-        proj += t.type === 'income' ? t.amount : -t.amount;
+        if (t.status !== 'pending') continue;
+        if (t.bankId !== bank.id) continue;
+        if (t.isBalanceAdjustment) continue; // balance adjustments affect only the snapshot, not projection
+        if (t.date > periodEnd) continue;    // include overdue (date <= today) + upcoming
+        if (t.type === 'income') {
+          proj += t.amount;
+        } else {
+          proj -= t.amount;
+        }
       }
       for (const tr of transfers) {
         if (tr.date <= today || tr.date > periodEnd) continue; // future transfers only
