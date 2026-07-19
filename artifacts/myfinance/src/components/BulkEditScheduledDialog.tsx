@@ -82,17 +82,20 @@ export const BulkEditScheduledDialog = ({ open, onOpenChange, selectedIds, onDon
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[480px]">
-        <DialogHeader>
-          <DialogTitle>
-            Editar {selectedIds.length} recorrência{selectedIds.length !== 1 ? 's' : ''}
-          </DialogTitle>
-        </DialogHeader>
-        <p className="text-sm text-muted-foreground -mt-1">
-          Marque os campos que deseja alterar. Os demais não serão tocados.
-        </p>
+      <DialogContent className="sm:max-w-[480px] max-h-[90vh] p-0 flex flex-col gap-0">
+        <div className="px-6 pt-6 pb-4 border-b shrink-0">
+          <DialogHeader>
+            <DialogTitle>
+              Editar {selectedIds.length} recorrência{selectedIds.length !== 1 ? 's' : ''}
+            </DialogTitle>
+          </DialogHeader>
+        </div>
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          <p className="text-sm text-muted-foreground mb-4">
+            Marque os campos que deseja alterar. Os demais não serão tocados.
+          </p>
 
-        <div className="space-y-5 pt-1">
+          <div className="space-y-5">
 
           {/* ── Categoria ─────────────────────────────────── */}
           <div className="space-y-2">
@@ -193,17 +196,20 @@ export const BulkEditScheduledDialog = ({ open, onOpenChange, selectedIds, onDon
             )}
           </div>
 
+          </div>
         </div>
 
-        <DialogFooter className="pt-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
-            Cancelar
-          </Button>
-          <Button onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-            Aplicar alterações
-          </Button>
-        </DialogFooter>
+        <div className="px-6 py-4 border-t shrink-0 bg-background">
+          <DialogFooter className="pt-0">
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSubmit} disabled={isSubmitting}>
+              {isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Aplicar alterações
+            </Button>
+          </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

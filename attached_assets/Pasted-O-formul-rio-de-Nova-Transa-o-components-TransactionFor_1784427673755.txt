@@ -1,0 +1,35 @@
+O formulário de Nova Transação (components/TransactionFormDialog.tsx) está estourando a tela quando tem muitos campos visíveis (principalmente com "Esta é uma transação recorrente?" ligado) — o DialogContent hoje não tem limite de altura nem scroll, então título e botão Salvar ficam inacessíveis, fora da área visível, sem nenhuma forma de rolar até eles.
+
+Preciso da estrutura "cabeçalho fixo + meio rolável + rodapé fixo", que é robusta independente de quantos campos aparecerem:
+
+1. Em components/TransactionFormDialog.tsx, mude o DialogContent (linha ~423) de:
+   className="w-full sm:max-w-[700px]"
+   para:
+   className="w-full sm:max-w-[700px] max-h-[90vh] p-0 flex flex-col gap-0"
+   (remova o padding padrão do DialogContent, pois vamos controlar padding por seção).
+
+2. Envolva o DialogHeader (linha ~424) em um wrapper com padding e destaque visual de fixo, ex:
+   <div className="px-6 pt-6 pb-4 border-b shrink-0">
+     <DialogHeader>...</DialogHeader>
+   </div>
+   Isso garante que o título e o botão de fechar (X) NUNCA saiam da área visível, independente do tamanho do formulário.
+
+3. Envolva todo o CONTEÚDO do formulário (todos os campos, entre o header e o footer) em uma div com scroll interno, ex:
+   <div className="flex-1 overflow-y-auto px-6 py-4">
+     {/* todos os campos do formulário aqui */}
+   </div>
+
+4. Envolva o DialogFooter (linha ~981) da mesma forma que o header, fixo embaixo:
+   <div className="px-6 py-4 border-t shrink-0 bg-background">
+     <DialogFooter className="pt-0">...</DialogFooter>
+   </div>
+   Isso garante que os botões "Cancelar" e "Salvar" fiquem SEMPRE visíveis e clicáveis, mesmo com o formulário mais longo possível (recorrência + parcelamento + observação juntos).
+
+5. Aplique essa mesma estrutura (header fixo + meio rolável + footer fixo) em TODOS os outros dialogs de formulário do projeto que podem crescer bastante: components/ScheduledFormDialog.tsx (se ainda existir/for usado em algum lugar), components/TransferFormDialog.tsx, components/BulkEditTransactionsDialog.tsx, components/BulkEditScheduledDialog.tsx.
+
+6. Teste especificamente o pior caso: abrir Nova Transação, ativar "Esta é uma transação recorrente?", preencher todos os campos incluindo Observação — confirme que dá pra rolar até ver tudo, e que o botão "Salvar" está sempre visível e clicável, em desktop E em uma janela de navegador mais baixa (redimensione a janela para simular uma tela pequena).
+
+IMPORTANTE:
+- Não mude a largura do dialog (mantenha sm:max-w-[700px]).
+- Não quebre o layout em 2 colunas dos campos já implementado.
+- Rode pnpm run typecheck ao final e liste os arquivos alterados.

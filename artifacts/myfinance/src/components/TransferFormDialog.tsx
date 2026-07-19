@@ -111,16 +111,19 @@ export const TransferFormDialog = ({ open, onOpenChange, transfer }: TransferFor
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[420px]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <ArrowRightLeft className="w-4 h-4" />
-            {transfer ? 'Editar Transferência' : 'Nova Transferência'}
-          </DialogTitle>
-        </DialogHeader>
+      <DialogContent className="sm:max-w-[420px] max-h-[90vh] p-0 flex flex-col gap-0">
+        <div className="px-6 pt-6 pb-4 border-b shrink-0">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowRightLeft className="w-4 h-4" />
+              {transfer ? 'Editar Transferência' : 'Nova Transferência'}
+            </DialogTitle>
+          </DialogHeader>
+        </div>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col flex-1 min-h-0">
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
 
             {/* From */}
             <FormField control={form.control} name="fromBankId" render={({ field }) => (
@@ -216,15 +219,18 @@ export const TransferFormDialog = ({ open, onOpenChange, transfer }: TransferFor
               </FormItem>
             )} />
 
-            <DialogFooter className="pt-2">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                {transfer ? 'Salvar' : 'Registrar transferência'}
-              </Button>
-            </DialogFooter>
+            </div>
+            <div className="px-6 py-4 border-t shrink-0 bg-background">
+              <DialogFooter className="pt-0">
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={form.formState.isSubmitting}>
+                  {form.formState.isSubmitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  {transfer ? 'Salvar' : 'Registrar transferência'}
+                </Button>
+              </DialogFooter>
+            </div>
           </form>
         </Form>
       </DialogContent>
