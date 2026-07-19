@@ -1,0 +1,28 @@
+No card "Contas Bancárias" do Dashboard (pages/Dashboard.tsx), preciso que dentro de cada quadrante de conta (Nubank, Bradesco, Flash, etc.) apareçam dois valores, não apenas um:
+1. Saldo Real (hoje)
+
+O que realmente está na conta agora.
+Calcular usando apenas transações com status === 'paid' + transfers já efetivadas + balanceSnapshots, limitado a atDate = today — mesma lógica já usada em Pendencias.tsx (linha 137), que hoje não é a lógica usada no Dashboard.
+Hoje o Dashboard (linha ~240) está calculando errado: passa todas as transações (transactions) sem filtrar por status nem limitar a data, misturando pendente com pago — corrija isso para usar só as pagas até hoje.
+
+2. Saldo Previsto
+
+Partindo do Saldo Real, somar/subtrair as transações pendentes (status === 'pending') daquela conta com data dentro do período selecionado no filtro do Dashboard.
+Representa "como vai ficar essa conta" depois que tudo que já está lançado (mas ainda não pago) for de fato pago.
+
+3. Layout dentro do card de cada conta
+Dentro do mesmo quadrante (ex: o card do "Nubank"), exibir os dois valores de forma clara e compacta, por exemplo:
+[ícone] Nubank
+        Conta Corrente
+
+        Saldo real:      -R$ 320,20
+        Saldo previsto:  -R$ 180,00
+
+O "Saldo real" deve manter o destaque visual atual (maior, cor vermelha/verde conforme sinal).
+O "Saldo previsto" aparece logo abaixo, em tamanho menor, com um rótulo curto e claro (ex: "Previsto:" ou "Após pendências:").
+Se o saldo previsto for pior (mais negativo) que o real, usar uma cor de alerta sutil para chamar atenção.
+No "Saldo total" do topo do card (hoje mostrando só -R$ 279,64), aplicar a mesma lógica: exibir o Saldo Real total (soma de todas as contas) e, ao lado ou abaixo, o Saldo Previsto total.
+Atualizar o texto explicativo no rodapé do card (hoje "Saldo atual · independente do período selecionado") para refletir que agora há dois números — algo como "Saldo real · saldo previsto considera pendências do período selecionado".
+Manter compatibilidade com o modo de ocultar valores (ícone de olho) nos dois números.
+
+Teste comparando manualmente o "Saldo real" de uma conta com a soma das transações pagas dela, e verificando que o "Saldo previsto" muda ao alternar o filtro de período do Dashboard.
