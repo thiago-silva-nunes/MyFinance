@@ -1,0 +1,44 @@
+Preciso que você faça uma revisão completa do MyFinance para identificar o que regrediu/quebrou após as últimas atualizações, e corrija tudo que estiver faltando ou com bug. Vá item por item da lista abaixo, confirmando no código atual se cada funcionalidade está presente E funcionando (não assuma que está — teste/verifique de fato), e me reporte no final o status de cada uma (OK / corrigido / não implementado ainda).
+
+1. NAVEGAÇÃO
+- O item "Cartões" deve estar visível no menu lateral (components/Layout.tsx), linkando para /cards, tanto no desktop quanto no menu mobile.
+- Todos os outros itens do menu (Dashboard, Transações, Orçamentos, Recorrentes, DRE, Relatórios, Configurações) devem continuar funcionando normalmente.
+
+2. FORMULÁRIO DE TRANSAÇÃO (components/TransactionFormDialog.tsx)
+- Deve ter layout retangular (max-w-[700px]), com cabeçalho fixo, meio com scroll e rodapé fixo (botões Cancelar/Salvar sempre visíveis e clicáveis), mesmo com o toggle de recorrência ligado e todos os campos preenchidos (teste isso especificamente, é o cenário mais alto).
+- Deve ter: toggle "Esta é uma transação recorrente?", campo de valor com máscara de moeda (sem precisar digitar vírgula/ponto), seletor de data no formato dd/mm/aaaa (não nativo do navegador), campo de Observação (notes) opcional, e subcategoria/banco condicionalmente obrigatórios (subcategoria obrigatória só se a categoria tiver subcategorias; banco obrigatório se não for cartão de crédito).
+
+3. TRANSAÇÕES (pages/Transactions.tsx)
+- Seleção múltipla via checkbox com barra de ações em massa (Excluir selecionadas + Editar selecionadas).
+- Clicar na linha abre edição direto (sem precisar clicar no lápis).
+- Botão de duplicar transação por linha.
+- Colunas com ordenação clicável (crescente/decrescente) em Data, Descrição, Categoria, Conta, Status, Valor.
+
+4. RECORRENTES (pages/Scheduled.tsx e services/recurringEngine.ts)
+- Seleção múltipla + edição em massa (mesmo padrão de Transações).
+- Clicar na linha abre edição direto.
+- Ao clicar em "Regenerar" numa recorrência que já foi paga no período, NÃO deve criar uma transação pendente duplicada — deve avisar que já foi paga.
+- Deve existir uma seção/alerta mostrando contas atrasadas (pendentes com data já vencida) acumuladas de meses anteriores, com badge "Atrasado" distinta de "Pendente".
+- Ao marcar uma transação vinculada a uma recorrência como paga, deve abrir um dialog de confirmação permitindo ajustar o valor (para casos de juros/multa por atraso) antes de salvar como pago.
+
+5. SALDO DE CONTAS BANCÁRIAS
+- Tabela balance_snapshots deve existir no banco (confirme com uma query, não assuma).
+- O dialog de "Ajustar saldo" deve criar/atualizar um snapshot (não uma transação).
+- O saldo ajustado deve refletir IMEDIATAMENTE no Dashboard e em Configurações > Bancos, sem precisar recarregar a página.
+- Transações de ajuste antigas (categoria "Ajustes", is_balance_adjustment = true) devem ter sido migradas para snapshots e removidas da lista de Transações.
+
+6. DASHBOARD, DRE E RELATÓRIOS
+- Cards do topo do Dashboard (Resultado do Mês, Receitas, Despesas) somam só transações Pagas, excluindo ajustes de saldo/is_balance_adjustment.
+- Mini-card "DRE — Este mês" no Dashboard deve mostrar "Receita Líquida" já descontando Deduções (não a Receita Bruta), e bater exatamente com os valores da página /dre completa no mesmo período.
+- Gráfico "Evolução do Saldo" em Relatórios deve mostrar uma linha dia a dia (não um ponto único), com eixo Y formatado em Reais normalmente.
+- Datas em qualquer filtro de período devem aparecer em formato dd/mm/aaaa, nunca ISO cru (yyyy-mm-dd).
+
+7. CALCULADORA FLUTUANTE
+- Deve existir um widget de calculadora (fixo/recolhível no desktop, FAB + drawer no mobile), renderizado globalmente em Layout.tsx, com botão "Lançar como transação" que abre o TransactionFormDialog com o valor calculado pré-preenchido.
+
+8. VERIFICAÇÃO GERAL DE ERROS
+- Abra o console do navegador em cada página principal (Dashboard, Transações, Orçamentos, Recorrentes, Cartões, DRE, Relatórios, Configurações) e confirme que não há nenhum erro de schema/coluna faltando (ex: PGRST204, PGRST205) nem erro de JavaScript não tratado.
+- Rode pnpm run typecheck e resolva qualquer erro de tipo.
+- Confirme que todas as migrações SQL do diretório supabase/ (schema.sql e schema_v2 até a mais recente) já foram executadas no banco de produção; se encontrar alguma tabela/coluna esperada pelo código mas ausente no banco, me avise exatamente qual migração falta rodar.
+
+Ao final, me dê um relatório curto: o que estava quebrado, o que você corrigiu, e o que ainda precisa de uma ação manual minha (tipo rodar alguma migração SQL no Supabase). Depois de corrigir tudo, publique/republique o deployment para que my-self-finance.com reflita as correções.

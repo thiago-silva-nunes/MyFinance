@@ -65,36 +65,25 @@ export const Reports = () => {
       Despesas: monthlyMap[key].expense
     }));
 
-    // Balance over time — snapshot-aware, computed per bank per month-end.
-    // For each month: sum of computeBankBalanceAtDate(..., lastDayOfMonth) across all banks.
-    // This correctly anchors to any balance snapshot in history.
-    //
-    // Collect all months that have at least one transaction or one snapshot.
-    const monthSet = new Set<string>();
-    paidTxs.forEach(t => {
-      const d = parseLocalDate(t.date);
-      monthSet.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
-    });
-    balanceSnapshots.forEach(s => {
-      monthSet.add(s.snapshotDate.slice(0, 7)); // YYYY-MM
-    });
+    // Balance over time — snapshot-aware, day-by-day resolution.
+    // Collect every unique date from transactions + snapshots, compute the
+    // total balance across all banks at each date.
+    const dateSet = new Set<string>();
+    paidTxs.forEach(t => dateSet.add(t.date));
+    balanceSnapshots.forEach(s => dateSet.add(s.snapshotDate));
 
-    const allSortedMonths = Array.from(monthSet).sort();
+    const allSortedDates = Array.from(dateSet).sort();
 
-    const balanceOverTime = allSortedMonths.map(key => {
-      const [y, m] = key.split('-').map(Number);
-      // Last day of month
-      const lastDay = new Date(y, m, 0).getDate();
-      const atDate = `${key}-${String(lastDay).padStart(2, '0')}`;
-
+    const balanceOverTime = allSortedDates.map(date => {
       const totalBalance = banks.reduce((sum, bank) => {
-        return sum + computeBankBalanceAtDate(bank.id, bank, transactions, transfers, balanceSnapshots, atDate);
+        return sum + computeBankBalanceAtDate(bank.id, bank, transactions, transfers, balanceSnapshots, date);
       }, 0);
 
-      const d = new Date(y, m - 1, 1);
+      const d = parseLocalDate(date);
       return {
-        name: d.toLocaleString('pt-BR', { month: 'short', year: '2-digit' }),
+        name: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }),
         Saldo: totalBalance,
+        fullDate: date,
       };
     });
 
@@ -162,6 +151,13 @@ export const Reports = () => {
     return { monthlyData, expensesByGroup, balanceOverTime };
   }, [transactions, categories, subcategories, filterCategoryId, groupBy, banks, transfers, balanceSnapshots]);
 
+  const formatBRLAxis = (val: number) => {
+    const abs = Math.abs(val);
+    if (abs >= 1_000_000) return `R${(val / 1_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}M`;
+    if (abs >= 1_000)     return `R${(val / 1_000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}k`;
+    return `R${val.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`;
+  };
+
   const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) => {
     if (active && payload && payload.length) {
       return (
@@ -198,7 +194,7 @@ export const Reports = () => {
                 <BarChart data={monthlyData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                   <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={12} tickMargin={10} />
-                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={(val) => `R$${val/1000}k`} />
+                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={formatBRLAxis} />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
                   <Bar dataKey="Receitas" fill="hsl(var(--success))" radius={[4, 4, 0, 0]} maxBarSize={40} />
@@ -293,8 +289,8 @@ export const Reports = () => {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                  <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={12} tickMargin={10} />
-                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={(val) => `R$${val/1000}k`} />
+                  <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" fontSize={11} tickMargin={10} interval="preserveStartEnd" />
+                  <YAxis stroke="hsl(var(--muted-foreground))" fontSize={12} tickFormatter={formatBRLAxis} />
                   <Tooltip content={<CustomTooltip />} />
                   <Area type="monotone" dataKey="Saldo" stroke="hsl(var(--primary))" fillOpacity={1} fill="url(#colorSaldo)" strokeWidth={2} />
                 </AreaChart>

@@ -13,7 +13,7 @@ import { getIcon } from '@/components/IconMap';
 import { TransactionFormDialog } from '@/components/TransactionFormDialog';
 import { TransferFormDialog } from '@/components/TransferFormDialog';
 import { Transaction, Transfer } from '@/data/mockData';
-import { Search, Plus, Edit2, Trash2, CheckCircle, Layers, Loader2, ArrowRightLeft, Copy, Pencil } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, CheckCircle, Layers, Loader2, ArrowRightLeft, Copy, Pencil, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { BulkEditTransactionsDialog } from '@/components/BulkEditTransactionsDialog';
 import { ConfirmPaymentDialog } from '@/components/ConfirmPaymentDialog';
 import { toast } from 'sonner';
@@ -46,6 +46,23 @@ export const Transactions = () => {
   const [statusFilter, setStatusFilter]   = useState<string>('all');
   const [bankFilter, setBankFilter]       = useState<string>('all');
 
+  // ── Sort state ────────────────────────────────────────────────────────────
+  type SortField = 'date' | 'description' | 'category' | 'bank' | 'status' | 'amount';
+  const [sortField, setSortField] = useState<SortField>('date');
+  const [sortDir,   setSortDir]   = useState<'asc' | 'desc'>('desc');
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortField(field); setSortDir('desc'); }
+  };
+
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) return <ArrowUpDown className="w-3.5 h-3.5 ml-1 opacity-40" />;
+    return sortDir === 'asc'
+      ? <ArrowUp className="w-3.5 h-3.5 ml-1 text-primary" />
+      : <ArrowDown className="w-3.5 h-3.5 ml-1 text-primary" />;
+  };
+
   const [isFormOpen, setIsFormOpen]               = useState(false);
   const [editingTransaction, setEditingTransaction]   = useState<Transaction | null>(null);
   const [duplicatingTransaction, setDuplicatingTransaction] = useState<Transaction | null>(null);
@@ -60,12 +77,18 @@ export const Transactions = () => {
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [bulkEditOpen, setBulkEditOpen]   = useState(false);
 
-  // Build lookup maps for banks
+  // Build lookup maps for banks and categories
   const bankNameMap = useMemo(() => {
     const m: Record<string, string> = {};
     banks.forEach(b => { m[b.id] = b.name; });
     return m;
   }, [banks]);
+
+  const categoryNameMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    categories.forEach(c => { m[c.id] = c.name; });
+    return m;
+  }, [categories]);
 
   const bankColorMap = useMemo(() => {
     const m: Record<string, string> = {};
@@ -101,12 +124,45 @@ export const Transactions = () => {
     });
   }, [transfers, bankFilter, typeFilter, statusFilter, categoryFilter, searchTerm, bankNameMap]);
 
-  // ── Combined list sorted by date desc ────────────────────────────────────
+  // ── Combined list with dynamic sort ──────────────────────────────────────
   const combinedList = useMemo<ListItem[]>(() => {
     const txns: ListItem[] = filteredTransactions.map(data => ({ kind: 'transaction', data }));
     const tfrs: ListItem[] = filteredTransfers.map(data => ({ kind: 'transfer', data }));
-    return [...txns, ...tfrs].sort((a, b) => b.data.date.localeCompare(a.data.date));
-  }, [filteredTransactions, filteredTransfers]);
+    const combined = [...txns, ...tfrs];
+
+    combined.sort((a, b) => {
+      let cmp = 0;
+      switch (sortField) {
+        case 'date':
+          cmp = a.data.date.localeCompare(b.data.date);
+          break;
+        case 'description':
+          cmp = (a.kind === 'transaction' ? a.data.description : 'Transferência')
+            .localeCompare(b.kind === 'transaction' ? b.data.description : 'Transferência', 'pt-BR');
+          break;
+        case 'category':
+          cmp = (a.kind === 'transaction' ? (categoryNameMap[a.data.categoryId] ?? '') : 'Transferência')
+            .localeCompare(b.kind === 'transaction' ? (categoryNameMap[b.data.categoryId] ?? '') : 'Transferência', 'pt-BR');
+          break;
+        case 'bank': {
+          const aId = a.kind === 'transaction' ? a.data.bankId : a.data.fromBankId;
+          const bId = b.kind === 'transaction' ? b.data.bankId : b.data.fromBankId;
+          cmp = (bankNameMap[aId ?? ''] ?? '').localeCompare(bankNameMap[bId ?? ''] ?? '', 'pt-BR');
+          break;
+        }
+        case 'status':
+          cmp = (a.kind === 'transaction' ? a.data.status : 'paid')
+            .localeCompare(b.kind === 'transaction' ? b.data.status : 'paid');
+          break;
+        case 'amount':
+          cmp = a.data.amount - b.data.amount;
+          break;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+
+    return combined;
+  }, [filteredTransactions, filteredTransfers, sortField, sortDir, categoryNameMap, bankNameMap]);
 
   // Clear selection when filters change
   useEffect(() => { setSelectedIds(new Set()); }, [searchTerm, typeFilter, categoryFilter, statusFilter, bankFilter]);
@@ -297,12 +353,25 @@ export const Transactions = () => {
                     className={someSelected && !allSelected ? 'opacity-60' : ''}
                   />
                 </TableHead>
-                <TableHead>Data</TableHead>
-                <TableHead>Descrição</TableHead>
-                <TableHead>Categoria</TableHead>
-                <TableHead>Conta</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Valor</TableHead>
+                {(['date', 'description', 'category', 'bank', 'status'] as const).map((field, i) => (
+                  <TableHead key={field}>
+                    <button
+                      onClick={() => toggleSort(field)}
+                      className="flex items-center hover:text-foreground transition-colors"
+                    >
+                      {['Data', 'Descrição', 'Categoria', 'Conta', 'Status'][i]}
+                      <SortIcon field={field} />
+                    </button>
+                  </TableHead>
+                ))}
+                <TableHead className="text-right">
+                  <button
+                    onClick={() => toggleSort('amount')}
+                    className="flex items-center ml-auto hover:text-foreground transition-colors"
+                  >
+                    Valor<SortIcon field="amount" />
+                  </button>
+                </TableHead>
                 <TableHead className="text-right">Ações</TableHead>
               </TableRow>
             </TableHeader>
