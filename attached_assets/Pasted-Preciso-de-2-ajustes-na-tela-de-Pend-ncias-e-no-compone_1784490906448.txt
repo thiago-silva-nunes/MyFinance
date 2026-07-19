@@ -1,0 +1,19 @@
+Preciso de 2 ajustes na tela de Pendências e no componente de calendário:
+1. Reordenar seções em pages/Pendencias.tsx
+Hoje a ordem das seções é: Contas atrasadas → Faturas em aberto → A vencer este mês → A receber. Preciso que a seção "Faturas em aberto" (o <section> que renderiza openInvoices, hoje logo após "Contas atrasadas") seja movida para o final da página, ficando depois de "A receber". A nova ordem deve ser:
+
+Contas atrasadas
+A vencer este mês
+A receber
+Faturas em aberto (por último)
+
+Apenas reordene os blocos JSX das seções — não altere a lógica interna de cada uma.
+2. Corrigir o visual do calendário — cabeçalho dos dias da semana ilegível
+No componente components/ui/calendar.tsx, o cabeçalho com os dias da semana (dom, seg, ter, qua, qui, sex, sab) está aparecendo todo grudado, sem espaçamento entre as abreviações, tornando difícil identificar qual coluna corresponde a qual dia. Corrija:
+
+Na classe weekdays, garanta que a linha seja um flex com largura total igual à linha dos dias abaixo (week), para que cada coluna do cabeçalho fique alinhada exatamente com sua coluna de dias correspondente.
+Na classe weekday, adicione centralização de texto e largura fixa consistente com o --cell-size já usado nas células dos dias (ex: flex items-center justify-center com width: var(--cell-size) ou flex-1 combinado com text-center), garantindo espaçamento visual claro entre cada abreviação.
+Confirme que o formatador de dias da semana (formatWeekdayName ou equivalente no formatters do DayPicker) está retornando abreviações curtas e consistentes (ex: "dom", "seg", "ter", "qua", "qui", "sex", "sáb" — 3 letras, em português), e não nomes completos ou strings sem separação.
+Teste o resultado visual em pelo menos 2 lugares onde o DatePicker/Calendar é usado (ex: formulário de Nova Transação e Nova Recorrência), em desktop e mobile, garantindo que os dias da semana fiquem legíveis e alinhados corretamente com as datas abaixo em todos os casos.
+
+Depois de aplicar as correções, tire um print da tela de Pendências (mostrando a nova ordem) e do calendário aberto no formulário de transação (mostrando o cabeçalho dos dias da semana legível) para eu confirmar visualmente.

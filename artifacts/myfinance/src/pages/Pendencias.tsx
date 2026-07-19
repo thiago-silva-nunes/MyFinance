@@ -298,55 +298,6 @@ export const Pendencias = () => {
         )}
       </section>
 
-      {/* ── Faturas de cartão em aberto ──────────────────────────────────────── */}
-      <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <CreditCard className="w-5 h-5 text-amber-600" />
-          <h2 className="font-semibold text-lg">Faturas em aberto</h2>
-          {openInvoices.length > 0 && (
-            <Badge className="ml-1 bg-amber-100 text-amber-700 border-amber-300">{openInvoices.length}</Badge>
-          )}
-        </div>
-
-        {openInvoices.length === 0 ? (
-          <div className="text-sm text-muted-foreground bg-muted/40 rounded-xl px-5 py-6 text-center">
-            Nenhuma fatura em aberto.
-          </div>
-        ) : (
-          <div className="bg-card border rounded-xl divide-y overflow-hidden shadow-sm">
-            {openInvoices.map(inv => {
-              const card = getCard(inv.cardId);
-              if (!card) return null;
-              const { label, cls } = invoiceStatusLabel(inv.status);
-              return (
-                <div key={inv.id} className="flex items-center justify-between px-4 py-3 gap-3 flex-wrap">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-medium text-sm">{card.name}</p>
-                      <Badge variant="outline" className={cn('text-xs', cls)}>{label}</Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Ref. {inv.referenceMonth} · vence {formatShortDate(inv.dueDate)}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <span className="font-semibold text-sm">{mask(inv.totalAmount)}</span>
-                    <Button
-                      size="sm" variant="outline"
-                      className="border-amber-400/60 text-amber-700 hover:bg-amber-50 whitespace-nowrap text-xs"
-                      onClick={() => handlePayInvoice(inv)}
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-                      Pagar fatura
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
       {/* ── A vencer este mês ────────────────────────────────────────────────── */}
       <section className="space-y-3">
         <div className="flex items-center gap-2">
@@ -437,6 +388,55 @@ export const Pendencias = () => {
                 <span className="font-semibold text-sm text-success flex-shrink-0">{mask(tx.amount)}</span>
               </div>
             ))}
+          </div>
+        )}
+      </section>
+
+      {/* ── Faturas de cartão em aberto ──────────────────────────────────────── */}
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <CreditCard className="w-5 h-5 text-amber-600" />
+          <h2 className="font-semibold text-lg">Faturas em aberto</h2>
+          {openInvoices.length > 0 && (
+            <Badge className="ml-1 bg-amber-100 text-amber-700 border-amber-300">{openInvoices.length}</Badge>
+          )}
+        </div>
+
+        {openInvoices.length === 0 ? (
+          <div className="text-sm text-muted-foreground bg-muted/40 rounded-xl px-5 py-6 text-center">
+            Nenhuma fatura em aberto.
+          </div>
+        ) : (
+          <div className="bg-card border rounded-xl divide-y overflow-hidden shadow-sm">
+            {openInvoices.map(inv => {
+              const card = getCard(inv.cardId);
+              if (!card) return null;
+              const { label, cls } = invoiceStatusLabel(inv.status);
+              return (
+                <div key={inv.id} className="flex items-center justify-between px-4 py-3 gap-3 flex-wrap">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-medium text-sm">{card.name}</p>
+                      <Badge variant="outline" className={cn('text-xs', cls)}>{label}</Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Ref. {inv.referenceMonth} · vence {formatShortDate(inv.dueDate)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <span className="font-semibold text-sm">{mask(inv.totalAmount)}</span>
+                    <Button
+                      size="sm" variant="outline"
+                      className="border-amber-400/60 text-amber-700 hover:bg-amber-50 whitespace-nowrap text-xs"
+                      onClick={() => handlePayInvoice(inv)}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                      Pagar fatura
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </section>

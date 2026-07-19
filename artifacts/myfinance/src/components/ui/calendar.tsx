@@ -37,6 +37,10 @@ function Calendar({
       formatters={{
         formatMonthDropdown: (date) =>
           date.toLocaleString('default', { month: 'short' }),
+        formatWeekdayName: (date) => {
+          const days = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+          return days[date.getDay()];
+        },
         ...formatters,
       }}
       classNames={{
@@ -84,9 +88,9 @@ function Calendar({
           defaultClassNames.caption_label,
         ),
         table: 'w-full border-collapse',
-        weekdays: cn('flex', defaultClassNames.weekdays),
+        weekdays: cn('flex w-full', defaultClassNames.weekdays),
         weekday: cn(
-          'text-muted-foreground flex-1 select-none rounded-md text-[0.8rem] font-normal',
+          'text-muted-foreground w-[--cell-size] flex items-center justify-center text-center select-none rounded-md text-[0.8rem] font-normal',
           defaultClassNames.weekday,
         ),
         week: cn('mt-2 flex w-full', defaultClassNames.week),
