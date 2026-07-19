@@ -8,7 +8,7 @@ import {
   generateAllPendingForCurrentPeriod,
   generatePendingIfNeeded,
   regeneratePendingForScheduled,
-  alreadyCheckedThisMonth,
+  getPendingPeriodsToGenerate,
   type RegenerateResult,
 } from '../services/recurringEngine';
 
@@ -58,6 +58,8 @@ interface FinanceContextType {
   addCategory: (data: Omit<Category, 'id'>) => Promise<void>;
   updateCategory: (id: string, data: Partial<Category>) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
+  bulkUpdateCategories: (ids: string[], updates: Partial<Category>) => Promise<void>;
+  deleteCategories: (ids: string[]) => Promise<void>;
 
   addSubcategory: (data: Omit<Subcategory, 'id'>) => Promise<void>;
   updateSubcategory: (id: string, data: Partial<Omit<Subcategory, 'id'>>) => Promise<void>;
@@ -92,6 +94,7 @@ interface FinanceContextType {
   addBank: (data: Omit<BankAccount, 'id'>) => Promise<void>;
   updateBank: (id: string, data: Partial<BankAccount>) => Promise<void>;
   deleteBank: (id: string) => Promise<void>;
+  deleteBanks: (ids: string[]) => Promise<void>;
 
   upsertBalanceSnapshot: (bankId: string, snapshotDate: string, balance: number) => Promise<void>;
 
@@ -231,15 +234,15 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     budgetGroupsPending || banksPending || transfersPending || snapshotsPending
   );
 
-  // ─── Auto-geração de pendentes recorrentes ─────────────────────────────────
-  // Runs once per month after data loads
+  // ─── Auto-geração de pendentes recorrentes (backfill completo) ────────────
+  // Roda toda vez que os dados carregam/atualizam.
+  // A deduplicação é feita no próprio engine (query em memória), então é seguro
+  // rodar com frequência sem risco de criar transações duplicadas.
   useEffect(() => {
     if (loading || !user || scheduled.length === 0) return;
-    if (alreadyCheckedThisMonth()) return;
 
     generateAllPendingForCurrentPeriod(user.id, scheduled).then((generated) => {
       if (generated.length > 0) {
-        // Invalidate so the paginated query (keyed with limit) picks up new rows
         queryClient.invalidateQueries({ queryKey: QK.transactions() });
       }
     }).catch(e => console.warn('[FinanceContext] Auto-geração de pendentes falhou:', e));
@@ -262,6 +265,20 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   const deleteCategory = async (id: string) => {
     await dataService.deleteCategory(id);
     queryClient.setQueryData(QK.categories(), (old: Category[] = []) => old.filter(x => x.id !== id));
+  };
+  const bulkUpdateCategories = async (ids: string[], updates: Partial<Category>) => {
+    if (ids.length === 0) return;
+    await dataService.bulkUpdateCategories(ids, updates);
+    queryClient.setQueryData(QK.categories(), (old: Category[] = []) =>
+      old.map(x => ids.includes(x.id) ? { ...x, ...updates } : x)
+    );
+  };
+  const deleteCategories = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    await dataService.deleteCategories(ids);
+    queryClient.setQueryData(QK.categories(), (old: Category[] = []) => old.filter(x => !ids.includes(x.id)));
+    // Also remove subcategories that belonged to these categories
+    queryClient.setQueryData(QK.subcategories(), (old: Subcategory[] = []) => old.filter(x => !ids.includes(x.categoryId)));
   };
 
   // ─── Subcategory actions ──────────────────────────────────────────────────
@@ -361,6 +378,22 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   const updateScheduled = async (id: string, data: Partial<ScheduledTransaction>) => {
     const c = await dataService.updateScheduledTransaction(id, data);
     queryClient.setQueryData(QK.scheduled(), (old: ScheduledTransaction[] = []) => old.map(x => x.id === id ? c : x));
+    // Run full backfill after update — covers reactivation, frequency/date changes
+    if (user && c.active) {
+      try {
+        const periods = getPendingPeriodsToGenerate(c);
+        if (periods.length > 0) {
+          const generated = await Promise.all(
+            periods.map(period => generatePendingIfNeeded(user.id, c, period))
+          );
+          if (generated.some(Boolean)) {
+            queryClient.invalidateQueries({ queryKey: QK.transactions() });
+          }
+        }
+      } catch (e) {
+        console.warn('[FinanceContext] Backfill após updateScheduled falhou:', e);
+      }
+    }
   };
   const deleteScheduled = async (id: string) => {
     await dataService.deleteScheduledTransaction(id);
@@ -467,6 +500,11 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
     await dataService.deleteBank(id);
     queryClient.setQueryData(QK.banks(), (old: BankAccount[] = []) => old.filter(x => x.id !== id));
   };
+  const deleteBanks = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    await dataService.deleteBanks(ids);
+    queryClient.setQueryData(QK.banks(), (old: BankAccount[] = []) => old.filter(x => !ids.includes(x.id)));
+  };
 
   // ─── Balance Snapshot actions ──────────────────────────────────────────────
   const upsertBalanceSnapshot = async (bankId: string, snapshotDate: string, balance: number) => {
@@ -517,7 +555,7 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
       budgets, budgetGroups, banks, transfers, balanceSnapshots,
       settings, loading,
       refreshData, loadMoreTransactions, hasMoreTransactions,
-      addCategory, updateCategory, deleteCategory,
+      addCategory, updateCategory, deleteCategory, bulkUpdateCategories, deleteCategories,
       addSubcategory, updateSubcategory, deleteSubcategory,
       addTransaction, addInstallments, updateTransaction, deleteTransaction, deleteTransactions, bulkUpdateTransactions, deleteInstallmentGroup,
       addScheduled, updateScheduled, deleteScheduled, bulkUpdateScheduled,
@@ -525,7 +563,7 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
       addCard, updateCard, deleteCard, payInvoice,
       addBudget, updateBudget, deleteBudget,
       addBudgetGroup, updateBudgetGroup, deleteBudgetGroup,
-      addBank, updateBank, deleteBank,
+      addBank, updateBank, deleteBank, deleteBanks,
       upsertBalanceSnapshot,
       addTransfer, updateTransfer, deleteTransfer,
       updateSettings, loadSampleData,

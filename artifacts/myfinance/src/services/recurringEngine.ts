@@ -30,39 +30,30 @@ export function getExpectedReferenceMonth(
   scheduled: ScheduledTransaction,
   asOf: Date = new Date(),
 ): string | null {
-  // Parseia start_date como data local (evita problema de fuso com T00:00:00Z)
-  const [sy, sm, sd] = scheduled.startDate.split('-').map(Number);
+  const [sy, sm] = scheduled.startDate.split('-').map(Number);
 
   const y = asOf.getFullYear();
   const m = asOf.getMonth() + 1;
 
-  // Compare at month granularity (YYYY-MM strings), not day-level.
-  // This means a recurring item starting on July 25 generates immediately
-  // when the current month is July, even if today is July 17.
   const startYM = `${sy}-${pad(sm)}`;
   const asOfYM  = `${y}-${pad(m)}`;
 
   switch (scheduled.frequency) {
     case 'once':
-      // Só gera uma vez — no mês do start_date, e somente quando esse mês já chegou.
       if (startYM > asOfYM) return null;
       return startYM;
 
     case 'monthly':
     case 'weekly':
     case 'daily':
-      // Gera uma por mês. Elegível a partir do mês de início (não do dia).
       if (startYM > asOfYM) return null;
       return asOfYM;
 
     case 'yearly': {
-      // Month-level check: if the recurrence month has arrived this year, generate for this year.
-      // Otherwise fall back to previous year (if the recurrence has started).
       const thisYearOccYM = `${y}-${pad(sm)}`;
       if (startYM <= asOfYM && thisYearOccYM <= asOfYM) {
         return thisYearOccYM;
       }
-      // Current month is before the occurrence month this year — use previous year
       const prevY = y - 1;
       const prevYearStartYM = `${sy}-${pad(sm)}`;
       const prevYearOccYM = `${prevY}-${pad(sm)}`;
@@ -89,16 +80,105 @@ export function getTransactionDateForPeriod(
   const [ry, rm] = referenceMonth.split('-').map(Number);
 
   if (scheduled.frequency === 'yearly') {
-    // Para anual, a data é no mês do start_date no ano de referência
     const lastDayOfMonth = new Date(ry, sm, 0).getDate();
     const day = Math.min(sd, lastDayOfMonth);
     return `${ry}-${pad(sm)}-${pad(day)}`;
   }
 
-  // Para monthly, weekly, daily, once: usa o mesmo dia do start_date no mês de referência
   const lastDayOfMonth = new Date(ry, rm, 0).getDate();
   const day = Math.min(sd, lastDayOfMonth);
   return `${ry}-${pad(rm)}-${pad(day)}`;
+}
+
+// ─── Backfill: todos os períodos pendentes ────────────────────────────────────
+
+/**
+ * Retorna todos os reference_month (YYYY-MM) que deveriam ter sido gerados
+ * desde o início da recorrência até o período atual (asOf).
+ * Limite de segurança: 36 períodos por chamada.
+ */
+export function getPendingPeriodsToGenerate(
+  scheduled: ScheduledTransaction,
+  asOf: Date = new Date(),
+): string[] {
+  const LIMIT = 36;
+  const [sy, sm] = scheduled.startDate.split('-').map(Number);
+  const asOfY = asOf.getFullYear();
+  const asOfM = asOf.getMonth() + 1;
+
+  const startYM = `${sy}-${pad(sm)}`;
+  const asOfYM  = `${asOfY}-${pad(asOfM)}`;
+
+  // Ainda não começou
+  if (startYM > asOfYM) return [];
+
+  switch (scheduled.frequency) {
+    case 'once': {
+      // Só um período — o mês do start_date
+      return [startYM];
+    }
+
+    case 'monthly':
+    case 'weekly':
+    case 'daily': {
+      // Um por mês, do mês de início até o atual.
+      // Calcula o total de meses no intervalo para determinar o ponto de início correto.
+      const totalMonths =
+        (asOfY - sy) * 12 + (asOfM - sm) + 1; // +1 inclui o mês inicial
+
+      // Se o intervalo excede o limite, começamos dos LIMIT meses mais recentes.
+      let startY = sy, startM = sm;
+      if (totalMonths > LIMIT) {
+        console.warn(
+          `[recurringEngine] Limite de ${LIMIT} períodos atingido para recorrência ${scheduled.id}. ` +
+          `Gerando apenas os ${LIMIT} mais recentes.`,
+        );
+        // Retrocede LIMIT-1 meses a partir do mês atual
+        const offset = LIMIT - 1;
+        startM = asOfM - (offset % 12);
+        startY = asOfY - Math.floor(offset / 12);
+        if (startM <= 0) { startM += 12; startY -= 1; }
+        // Garante que não vamos antes do start_date original
+        const clampedStartYM = `${startY}-${pad(startM)}`;
+        if (clampedStartYM < startYM) { startY = sy; startM = sm; }
+      }
+
+      const periods: string[] = [];
+      let y = startY, m = startM;
+      while (true) {
+        const ym = `${y}-${pad(m)}`;
+        if (ym > asOfYM) break;
+        periods.push(ym);
+        m++;
+        if (m > 12) { m = 1; y++; }
+      }
+      return periods;
+    }
+
+    case 'yearly': {
+      // Um por ano, no mês do start_date, do ano de início até o atual.
+      // Se o intervalo excede o limite, começamos dos LIMIT anos mais recentes.
+      const occurrenceYears: number[] = [];
+      for (let year = sy; year <= asOfY; year++) {
+        const ym = `${year}-${pad(sm)}`;
+        if (ym > asOfYM) break;
+        occurrenceYears.push(year);
+      }
+
+      if (occurrenceYears.length > LIMIT) {
+        console.warn(
+          `[recurringEngine] Limite de ${LIMIT} períodos atingido para recorrência ${scheduled.id}. ` +
+          `Gerando apenas os ${LIMIT} mais recentes.`,
+        );
+        occurrenceYears.splice(0, occurrenceYears.length - LIMIT);
+      }
+
+      return occurrenceYears.map(year => `${year}-${pad(sm)}`);
+    }
+
+    default:
+      return [];
+  }
 }
 
 // ─── Funções principais ────────────────────────────────────────────────────────
@@ -135,7 +215,6 @@ export async function generatePendingIfNeeded(
   const targetRefMonth = referenceMonth ?? getExpectedReferenceMonth(scheduled, asOf);
   if (!targetRefMonth) return null;
 
-  // Deduplication: não gera se já existe transação para este período
   const exists = await existsForPeriod(scheduled.id, targetRefMonth);
   if (exists) return null;
 
@@ -163,8 +242,6 @@ export async function generatePendingIfNeeded(
     .single();
 
   if (error) {
-    // 23505 = unique_violation — another process/tab already inserted this pending row.
-    // Treat as "already exists" instead of a real error.
     if ((error as { code?: string }).code === '23505') return null;
     console.warn('[recurringEngine] Falha ao gerar transação pendente:', error);
     return null;
@@ -193,13 +270,6 @@ export type RegenerateResult = {
 
 /**
  * Força a regeneração de uma transação pendente para o período atual.
- * Retorna um objeto com { transaction, reason } para que o chamador possa
- * distinguir entre "já pago", "já pendente" e "gerado com sucesso".
- *
- * Deduplication strategy:
- * - If ANY paid transaction exists for this scheduledId + referenceMonth → reason: 'already_paid'
- * - If a pending transaction already exists → reason: 'already_pending'
- * - Otherwise inserts a new pending row.
  */
 export async function regeneratePendingForScheduled(
   userId: string,
@@ -209,13 +279,12 @@ export async function regeneratePendingForScheduled(
   const targetRefMonth = getExpectedReferenceMonth(scheduled, asOf);
   if (!targetRefMonth) return { transaction: null };
 
-  // Check for ANY existing transaction (paid or pending) for this period.
   const { data: existing, error: checkErr } = await supabase
     .from('transactions')
     .select('id, status')
     .eq('scheduled_id', scheduled.id)
     .eq('reference_month', targetRefMonth)
-    .limit(2); // limit(2) to detect both paid and pending rows cheaply
+    .limit(2);
 
   if (checkErr) {
     console.warn('[recurringEngine] Erro ao verificar transações existentes:', checkErr);
@@ -225,15 +294,10 @@ export async function regeneratePendingForScheduled(
   if (existing && existing.length > 0) {
     const hasPaid    = existing.some(r => r.status === 'paid');
     const hasPending = existing.some(r => r.status === 'pending');
-
-    // If any paid row exists, refuse to create a duplicate.
     if (hasPaid) return { transaction: null, reason: 'already_paid' };
-
-    // If only a pending row exists, also refuse.
     if (hasPending) return { transaction: null, reason: 'already_pending' };
   }
 
-  // No blocking row found. Insert a new pending transaction.
   const txDate = getTransactionDateForPeriod(scheduled, targetRefMonth);
 
   const { data, error } = await supabase
@@ -258,8 +322,6 @@ export async function regeneratePendingForScheduled(
     .single();
 
   if (error) {
-    // 23505 = unique_violation — race condition: another process inserted a row
-    // between our check and our insert. Treat as "already exists".
     if ((error as { code?: string }).code === '23505') {
       return { transaction: null, reason: 'already_pending' };
     }
@@ -287,7 +349,6 @@ export async function regeneratePendingForScheduled(
 /**
  * Retorna as transações pendentes vinculadas a recorrências ativas cujas datas
  * já passaram (atrasadas), ordenadas da mais antiga para a mais nova.
- * Opera apenas sobre os arrays em memória — sem acesso ao banco.
  */
 export function getOverdueTransactions(
   scheduledList: ScheduledTransaction[],
@@ -310,8 +371,63 @@ export function getOverdueTransactions(
 }
 
 /**
+ * Insere uma única transação pendente no banco.
+ */
+async function insertPendingTransaction(
+  userId: string,
+  scheduled: ScheduledTransaction,
+  referenceMonth: string,
+): Promise<Transaction | null> {
+  const txDate = getTransactionDateForPeriod(scheduled, referenceMonth);
+
+  const { data, error } = await supabase
+    .from('transactions')
+    .insert({
+      user_id: userId,
+      description: scheduled.description,
+      amount: scheduled.amount,
+      type: scheduled.type,
+      category_id: scheduled.categoryId,
+      subcategory_id: scheduled.subcategoryId ?? null,
+      bank_id: scheduled.bankId ?? null,
+      date: txDate,
+      status: 'pending',
+      scheduled_id: scheduled.id,
+      reference_month: referenceMonth,
+      dre_group_override: scheduled.dreGroupOverride ?? null,
+    })
+    .select(
+      'id, description, amount, type, category_id, subcategory_id, date, status, payment_method, notes, scheduled_id, card_id, bank_id, reference_month, dre_group_override',
+    )
+    .single();
+
+  if (error) {
+    if ((error as { code?: string }).code === '23505') return null;
+    console.warn('[recurringEngine] Falha ao inserir pendente:', error);
+    return null;
+  }
+
+  return {
+    id: data.id,
+    description: data.description,
+    amount: Number(data.amount),
+    type: data.type as 'income' | 'expense',
+    categoryId: data.category_id,
+    subcategoryId: data.subcategory_id ?? undefined,
+    bankId: (data as Record<string, unknown>).bank_id as string | undefined ?? undefined,
+    date: data.date,
+    status: 'pending',
+    scheduledId: data.scheduled_id,
+    referenceMonth: data.reference_month ?? undefined,
+    dreGroupOverride: (data as Record<string, unknown>).dre_group_override as string | undefined ?? undefined,
+  };
+}
+
+/**
  * Varre todas as recorrências ativas e gera transações pendentes faltantes
- * para o período atual. Chamado no carregamento da tela e no início de cada mês.
+ * para TODOS os períodos desde o início (backfill completo).
+ * Performance: uma query por recorrência traz todos os reference_month já
+ * existentes; a checagem de duplicação é feita em memória.
  */
 export async function generateAllPendingForCurrentPeriod(
   userId: string,
@@ -322,30 +438,27 @@ export async function generateAllPendingForCurrentPeriod(
 
   for (const scheduled of scheduledList) {
     if (!scheduled.active) continue;
-    // 'once' só gera uma vez; as demais geram por período
-    const tx = await generatePendingIfNeeded(userId, scheduled);
-    if (tx) generated.push(tx);
-  }
 
-  // Marca mês já processado no localStorage (para evitar re-varredura desnecessária)
-  const currentMonth = `${asOf.getFullYear()}-${pad(asOf.getMonth() + 1)}`;
-  try {
-    localStorage.setItem('myfinance_recurring_last_check', currentMonth);
-  } catch {}
+    const periods = getPendingPeriodsToGenerate(scheduled, asOf);
+    if (periods.length === 0) continue;
+
+    // Busca todos os reference_month já existentes para esta recorrência (uma única query)
+    const { data: existing } = await supabase
+      .from('transactions')
+      .select('reference_month')
+      .eq('scheduled_id', scheduled.id)
+      .in('reference_month', periods);
+
+    const existingSet = new Set((existing ?? []).map(r => r.reference_month as string));
+
+    for (const period of periods) {
+      if (existingSet.has(period)) continue;
+      const tx = await insertPendingTransaction(userId, scheduled, period);
+      if (tx) generated.push(tx);
+    }
+  }
 
   return generated;
-}
-
-/**
- * Retorna true se a varredura automática já foi feita no mês corrente.
- */
-export function alreadyCheckedThisMonth(): boolean {
-  try {
-    const last = localStorage.getItem('myfinance_recurring_last_check');
-    return last === getCurrentYearMonth();
-  } catch {
-    return false;
-  }
 }
 
 // ─── Utilidade para o painel de análise ───────────────────────────────────────
@@ -359,7 +472,7 @@ export function monthlyEquivalent(scheduled: ScheduledTransaction): number {
     case 'weekly':  return scheduled.amount * (52 / 12);
     case 'monthly': return scheduled.amount;
     case 'yearly':  return scheduled.amount / 12;
-    case 'once':    return scheduled.amount; // pontual — exibido à parte
+    case 'once':    return scheduled.amount;
     default:        return scheduled.amount;
   }
 }

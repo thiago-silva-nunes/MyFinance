@@ -267,6 +267,24 @@ export const dataService = {
     if (error) throw error;
   },
 
+  bulkUpdateCategories: async (ids: string[], updates: Partial<Category>): Promise<void> => {
+    if (ids.length === 0) return;
+    const dbUpdates: Record<string, unknown> = {};
+    if (updates.dreGroup !== undefined) dbUpdates.dre_group = updates.dreGroup ?? null;
+    if (updates.name !== undefined) dbUpdates.name = updates.name;
+    if (updates.color !== undefined) dbUpdates.color = updates.color;
+    if (updates.type !== undefined) dbUpdates.type = updates.type;
+    if (Object.keys(dbUpdates).length === 0) return;
+    const { error } = await supabase.from('categories').update(dbUpdates).in('id', ids);
+    if (error) throw error;
+  },
+
+  deleteCategories: async (ids: string[]): Promise<void> => {
+    if (ids.length === 0) return;
+    const { error } = await supabase.from('categories').delete().in('id', ids);
+    if (error) throw error;
+  },
+
   // ─── Subcategories ─────────────────────────────────────────────────────────
 
   getSubcategories: async (): Promise<Subcategory[]> => {
@@ -1046,6 +1064,12 @@ export const dataService = {
 
   deleteBank: async (id: string): Promise<void> => {
     const { error } = await supabase.from('banks').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  deleteBanks: async (ids: string[]): Promise<void> => {
+    if (ids.length === 0) return;
+    const { error } = await supabase.from('banks').delete().in('id', ids);
     if (error) throw error;
   },
 

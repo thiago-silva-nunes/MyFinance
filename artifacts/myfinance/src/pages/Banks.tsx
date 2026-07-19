@@ -4,13 +4,14 @@ import { computeBankBalanceAtDate } from '@/lib/balanceUtils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { BankFormDialog } from '@/components/BankFormDialog';
 import { BalanceAdjustDialog } from '@/components/BalanceAdjustDialog';
 import { BankAccount } from '@/data/mockData';
 import { getIcon } from '@/components/IconMap';
 import { formatCurrency } from '@/lib/utils';
 import { toast } from 'sonner';
-import { Plus, Edit2, Trash2, Building2, SlidersHorizontal } from 'lucide-react';
+import { Plus, Edit2, Trash2, Building2, SlidersHorizontal, X } from 'lucide-react';
 
 const ACCOUNT_TYPE_LABELS: Record<string, string> = {
   'corrente': 'Corrente',
@@ -19,7 +20,7 @@ const ACCOUNT_TYPE_LABELS: Record<string, string> = {
 };
 
 export function Banks() {
-  const { banks, deleteBank, transactions, transfers, balanceSnapshots } = useFinance();
+  const { banks, deleteBank, deleteBanks, transactions, transfers, balanceSnapshots } = useFinance();
 
   const bankBalances = useMemo(() => {
     const map: Record<string, number> = {};
@@ -34,6 +35,20 @@ export function Banks() {
   const [adjustBank, setAdjustBank] = useState<BankAccount | null>(null);
   const [adjustOpen, setAdjustOpen] = useState(false);
 
+  // Bulk selection
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const toggleSelect = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelected(s => {
+      const n = new Set(s);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  };
+
+  const clearSelection = () => setSelected(new Set());
+
   const handleDelete = async (bank: BankAccount) => {
     if (!confirm(`Excluir a conta "${bank.name}"? As transações vinculadas a ela continuarão existindo.`)) return;
     try {
@@ -41,6 +56,19 @@ export function Banks() {
       toast.success('Conta removida');
     } catch {
       toast.error('Erro ao remover conta');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = [...selected];
+    const names = ids.map(id => banks.find(b => b.id === id)?.name ?? id).join(', ');
+    if (!confirm(`Excluir ${ids.length} ${ids.length === 1 ? 'conta' : 'contas'} (${names})? As transações vinculadas continuarão existindo.`)) return;
+    try {
+      await deleteBanks(ids);
+      toast.success(`${ids.length} ${ids.length === 1 ? 'conta removida' : 'contas removidas'}`);
+      clearSelection();
+    } catch {
+      toast.error('Erro ao remover contas');
     }
   };
 
@@ -63,6 +91,22 @@ export function Banks() {
         </Button>
       </div>
 
+      {/* ── Bulk action bar ──────────────────────────────────────────────── */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-primary/5 border border-primary/20 rounded-xl">
+          <span className="text-sm font-medium text-primary flex-1">
+            {selected.size} {selected.size === 1 ? 'conta selecionada' : 'contas selecionadas'}
+          </span>
+          <Button size="sm" variant="destructive" onClick={handleBulkDelete}>
+            <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+            Excluir selecionadas
+          </Button>
+          <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={clearSelection}>
+            <X className="w-4 h-4" />
+          </Button>
+        </div>
+      )}
+
       {/* ── List / Empty state ──────────────────────────────────────────── */}
       {banks.length === 0 ? (
         <Card>
@@ -82,16 +126,27 @@ export function Banks() {
           {banks.map(bank => {
             const Icon = getIcon(bank.icon);
             const bal  = bankBalances[bank.id] ?? bank.initialBalance;
+            const isChecked = selected.has(bank.id);
             return (
-              <Card key={bank.id} className="group hover-elevate transition-all">
+              <Card key={bank.id} className={`group hover-elevate transition-all ${isChecked ? 'ring-2 ring-primary/40' : ''}`}>
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-3 min-w-0">
-                      <div
-                        className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
-                        style={{ backgroundColor: `${bank.color}20` }}
-                      >
-                        <Icon className="w-5 h-5" style={{ color: bank.color }} />
+                      {/* Avatar with checkbox overlay */}
+                      <div className="relative flex-shrink-0 w-11 h-11">
+                        <div className={`absolute inset-0 flex items-center justify-center rounded-xl z-10 transition-opacity ${isChecked || selected.size > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                          <Checkbox
+                            checked={isChecked}
+                            onClick={e => toggleSelect(bank.id, e)}
+                            className="bg-background border-2 shadow-sm"
+                          />
+                        </div>
+                        <div
+                          className={`w-11 h-11 rounded-xl flex items-center justify-center transition-opacity ${isChecked || selected.size > 0 ? 'opacity-0' : 'opacity-100 group-hover:opacity-0'}`}
+                          style={{ backgroundColor: `${bank.color}20` }}
+                        >
+                          <Icon className="w-5 h-5" style={{ color: bank.color }} />
+                        </div>
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="font-semibold text-sm truncate">{bank.name}</p>

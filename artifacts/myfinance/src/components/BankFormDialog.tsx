@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useFinance } from '@/context/FinanceContext';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -8,10 +8,12 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { toast } from 'sonner';
 import { BankAccount } from '@/data/mockData';
 import { CurrencyInput } from '@/components/ui/currency-input';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ChevronsUpDown, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
@@ -51,6 +53,30 @@ const ACCOUNT_TYPES = [
   { value: 'investimento', label: 'Investimento' },
 ];
 
+/** Top 20 bancos mais usados no Brasil — nome + cor de marca aproximada (sem logos) */
+const POPULAR_BANKS: { name: string; color: string }[] = [
+  { name: 'Banco do Brasil',        color: '#FFDD00' },
+  { name: 'Itaú Unibanco',          color: '#EC7000' },
+  { name: 'Bradesco',               color: '#CC092F' },
+  { name: 'Caixa Econômica Federal',color: '#0070AF' },
+  { name: 'Santander',              color: '#EC0000' },
+  { name: 'Nubank',                 color: '#8A05BE' },
+  { name: 'Inter',                  color: '#FF8700' },
+  { name: 'C6 Bank',                color: '#2D2D2D' },
+  { name: 'BTG Pactual',            color: '#00205B' },
+  { name: 'Banco Original',         color: '#007B40' },
+  { name: 'Sicoob',                 color: '#005CA9' },
+  { name: 'Sicredi',                color: '#00813D' },
+  { name: 'Safra',                  color: '#1D3557' },
+  { name: 'Banco Votorantim',       color: '#003399' },
+  { name: 'Neon',                   color: '#00E5CE' },
+  { name: 'PagBank',                color: '#F5A623' },
+  { name: 'Mercado Pago',           color: '#009EE3' },
+  { name: 'Next',                   color: '#00C851' },
+  { name: 'Banco Pan',              color: '#0066CC' },
+  { name: 'Banco XP',               color: '#111827' },
+];
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface BankFormDialogProps {
@@ -61,6 +87,7 @@ interface BankFormDialogProps {
 
 export const BankFormDialog = ({ open, onOpenChange, bank }: BankFormDialogProps) => {
   const { addBank, updateBank } = useFinance();
+  const [popularOpen, setPopularOpen] = useState(false);
 
   const form = useForm<BankFormData>({
     resolver: zodResolver(bankSchema),
@@ -100,7 +127,14 @@ export const BankFormDialog = ({ open, onOpenChange, bank }: BankFormDialogProps
     }
   };
 
+  const handleSelectPopularBank = (popular: { name: string; color: string }) => {
+    form.setValue('name', popular.name, { shouldValidate: true });
+    form.setValue('color', popular.color, { shouldValidate: true });
+    setPopularOpen(false);
+  };
+
   const currentColor = form.watch('color');
+  const currentName  = form.watch('name');
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -111,6 +145,69 @@ export const BankFormDialog = ({ open, onOpenChange, bank }: BankFormDialogProps
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+
+            {/* Popular banks quick-select (only for new accounts) */}
+            {!bank && (
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium">Seleção rápida</p>
+                <Popover open={popularOpen} onOpenChange={setPopularOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      type="button"
+                      className="w-full justify-between font-normal"
+                    >
+                      {currentName && POPULAR_BANKS.some(b => b.name === currentName)
+                        ? (
+                          <span className="flex items-center gap-2">
+                            <span
+                              className="w-4 h-4 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: currentColor }}
+                            />
+                            {currentName}
+                          </span>
+                        )
+                        : <span className="text-muted-foreground">Escolha um banco popular...</span>
+                      }
+                      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[400px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Buscar banco..." />
+                      <CommandList>
+                        <CommandEmpty>Banco não encontrado. Digite o nome manualmente abaixo.</CommandEmpty>
+                        <CommandGroup heading="Bancos populares no Brasil">
+                          {POPULAR_BANKS.map(b => (
+                            <CommandItem
+                              key={b.name}
+                              value={b.name}
+                              onSelect={() => handleSelectPopularBank(b)}
+                              className="flex items-center gap-2 cursor-pointer"
+                            >
+                              <span
+                                className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0"
+                                style={{ backgroundColor: b.color }}
+                              >
+                                {b.name.charAt(0)}
+                              </span>
+                              <span className="flex-1">{b.name}</span>
+                              <Check
+                                className={cn('w-4 h-4 text-primary', currentName === b.name ? 'opacity-100' : 'opacity-0')}
+                              />
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+                <p className="text-xs text-muted-foreground">
+                  Pré-preenche nome e cor. Você pode editar livremente nos campos abaixo.
+                </p>
+              </div>
+            )}
 
             {/* Name */}
             <FormField control={form.control} name="name" render={({ field }) => (
@@ -156,7 +253,7 @@ export const BankFormDialog = ({ open, onOpenChange, bank }: BankFormDialogProps
             <FormField control={form.control} name="color" render={({ field }) => (
               <FormItem>
                 <FormLabel>Cor</FormLabel>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 items-center">
                   {BANK_COLORS.map(c => (
                     <button
                       key={c}
@@ -169,6 +266,14 @@ export const BankFormDialog = ({ open, onOpenChange, bank }: BankFormDialogProps
                       onClick={() => field.onChange(c)}
                     />
                   ))}
+                  {/* Current color swatch (if from popular banks, not in BANK_COLORS) */}
+                  {!BANK_COLORS.includes(field.value) && (
+                    <span
+                      className="w-7 h-7 rounded-full border-2 border-foreground scale-110 flex-shrink-0"
+                      style={{ backgroundColor: field.value }}
+                      title={field.value}
+                    />
+                  )}
                   {/* Custom color input */}
                   <input
                     type="color"
