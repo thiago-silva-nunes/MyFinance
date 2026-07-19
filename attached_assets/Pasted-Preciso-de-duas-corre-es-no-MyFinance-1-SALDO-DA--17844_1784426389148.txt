@@ -1,0 +1,25 @@
+Preciso de duas correções no MyFinance.
+
+═══════════════════════════════════════════
+1. SALDO DA CONTA SÓ ATUALIZA APÓS RECARREGAR A PÁGINA MANUALMENTE
+═══════════════════════════════════════════
+Confirmei que o ajuste de saldo (BalanceAdjustDialog → upsertBalanceSnapshot) está sendo salvo corretamente no banco — o valor novo aparece depois de recarregar a página (F5). O problema é que ele não atualiza automaticamente na tela logo após confirmar o ajuste, sem precisar dar refresh.
+
+- Revise context/FinanceContext.tsx, função upsertBalanceSnapshot: confirme que queryClient.setQueryData(QK.balanceSnapshots(), ...) está sendo chamado com o retorno correto de dataService.upsertBalanceSnapshot ANTES do dialog fechar, e que essa atualização realmente dispara um novo cálculo nos componentes que usam balanceSnapshots.
+- Verifique se pages/Dashboard.tsx e pages/Settings.tsx estão de fato reagindo a mudanças em balanceSnapshots: confirme que o useMemo que calcula bankBalances/totalBankBalance tem `balanceSnapshots` corretamente na lista de dependências (não uma referência antiga/capturada).
+- Suspeitas específicas a investigar: (a) o QK.balanceSnapshots() usado no upsert é exatamente a mesma chave usada no useQuery que alimenta o contexto — confira se não há um typo ou uma chave com parâmetro diferente (ex: incluindo bankId na key em um lugar e não em outro); (b) se o dialog fecha (onOpenChange(false)) antes da Promise de upsertBalanceSnapshot resolver completamente, causando uma condição de corrida onde o componente desmonta antes do setQueryData rodar.
+- Depois de corrigir, teste: abra o Dashboard, ajuste o saldo de uma conta, feche o dialog, e confirme que o card "Contas Bancárias" atualiza o valor IMEDIATAMENTE, sem precisar dar F5.
+
+═══════════════════════════════════════════
+2. ADICIONAR "CARTÕES" NO MENU LATERAL
+═══════════════════════════════════════════
+A página de Cartões já existe e funciona (rotas /cards e /cards/:id em App.tsx, componente pages/Cards.tsx), mas não está no menu de navegação.
+
+- Em components/Layout.tsx, adicione um item no array `navItems` (linha ~23): { href: '/cards', label: 'Cartões', icon: CreditCard } (importe o ícone CreditCard de lucide-react), posicionado depois de "Recorrentes" e antes de "DRE" (ou na ordem que fizer mais sentido visualmente).
+- Repita a mesma inclusão no menu mobile (mobileMainItems, que hoje pega os 4 primeiros de navItems — avalie se precisa ajustar esse slice para não empurrar um item importante pra fora do menu mobile principal, ou se "Cartões" deve entrar no menu "mais" do mobile).
+- Inclua também o link equivalente no menu de overflow/dropdown que já existe nas linhas ~194-206 do Layout.tsx (mesmo padrão dos outros itens: <Link href="/cards" className="flex items-center gap-2"><CreditCard className="w-4 h-4" /> Cartões</Link>).
+
+IMPORTANTE:
+- Não altere a ordem ou remova nenhum item de menu existente, só adicione "Cartões".
+- Teste a navegação em desktop E mobile depois da mudança.
+- Rode pnpm run typecheck ao final e liste os arquivos alterados.

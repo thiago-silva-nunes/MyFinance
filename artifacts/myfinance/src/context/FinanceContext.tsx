@@ -471,11 +471,17 @@ export const FinanceProvider = ({ children }: { children: ReactNode }) => {
   // ─── Balance Snapshot actions ──────────────────────────────────────────────
   const upsertBalanceSnapshot = async (bankId: string, snapshotDate: string, balance: number) => {
     const snap = await dataService.upsertBalanceSnapshot(bankId, snapshotDate, balance);
+    // Optimistic update: replace/prepend in the cache immediately so all
+    // subscribers (Dashboard, Settings, Reports) re-render without waiting
+    // for a network round-trip.
     queryClient.setQueryData(QK.balanceSnapshots(), (old: BalanceSnapshot[] = []) => {
-      // Replace existing snapshot for same bank+date, or prepend new one
       const filtered = old.filter(s => !(s.bankId === bankId && s.snapshotDate === snapshotDate));
       return [snap, ...filtered];
     });
+    // Invalidate so React Query confirms the full list from the server in the
+    // background. This is the safety net that catches any edge cases where
+    // setQueryData alone doesn't trigger a re-render (e.g. stale observers).
+    await queryClient.invalidateQueries({ queryKey: QK.balanceSnapshots() });
   };
 
   // ─── Transfer actions ─────────────────────────────────────────────────────
