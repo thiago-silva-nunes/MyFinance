@@ -3,7 +3,7 @@ import { Link, useLocation } from 'wouter';
 import {
   LayoutDashboard, Receipt, CalendarClock, LineChart,
   Settings, Wallet, LogOut, Plus, MoreHorizontal, BarChart2,
-  Eye, EyeOff, Target, CreditCard,
+  Eye, EyeOff, Target, CreditCard, Tag, Building2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -27,11 +27,13 @@ const navItems = [
   { href: '/orcamentos',   label: 'Orçamentos',  icon: Target },
   { href: '/scheduled',    label: 'Recorrentes', icon: CalendarClock },
   { href: '/cards',        label: 'Cartões',     icon: CreditCard },
+  { href: '/categories',   label: 'Categorias',  icon: Tag },
+  { href: '/banks',        label: 'Bancos',      icon: Building2 },
   { href: '/dre',          label: 'DRE',         icon: BarChart2 },
   { href: '/reports',      label: 'Relatórios',  icon: LineChart },
 ];
 
-const moreItems = ['/orcamentos', '/scheduled', '/scheduled/analise', '/cards', '/dre', '/reports', '/settings'];
+const moreItems = ['/orcamentos', '/scheduled', '/scheduled/analise', '/cards', '/categories', '/banks', '/dre', '/reports', '/settings'];
 
 export const Layout = ({ children }: { children: React.ReactNode }) => {
   const [location] = useLocation();
@@ -203,6 +205,12 @@ export const Layout = ({ children }: { children: React.ReactNode }) => {
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href="/cards" className="flex items-center gap-2"><CreditCard className="w-4 h-4" /> Cartões</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/categories" className="flex items-center gap-2"><Tag className="w-4 h-4" /> Categorias</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/banks" className="flex items-center gap-2"><Building2 className="w-4 h-4" /> Bancos</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href="/dre" className="flex items-center gap-2"><BarChart2 className="w-4 h-4" /> DRE</Link>

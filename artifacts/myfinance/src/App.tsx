@@ -24,6 +24,7 @@ const Cards            = lazy(() => import('@/pages/Cards').then(m => ({ default
 const CardDetail       = lazy(() => import('@/pages/CardDetail').then(m => ({ default: m.CardDetail })));
 const Dre              = lazy(() => import('@/pages/Dre').then(m => ({ default: m.Dre })));
 const Budgets          = lazy(() => import('@/pages/Budgets').then(m => ({ default: m.Budgets })));
+const Banks            = lazy(() => import('@/pages/Banks').then(m => ({ default: m.Banks })));
 const Login            = lazy(() => import('@/pages/Login').then(m => ({ default: m.Login })));
 const Signup           = lazy(() => import('@/pages/Signup').then(m => ({ default: m.Signup })));
 
@@ -145,6 +146,7 @@ function AppContent() {
             <Route path="/" component={Dashboard} />
             <Route path="/transactions" component={Transactions} />
             <Route path="/categories" component={Categories} />
+            <Route path="/banks" component={Banks} />
             <Route path="/cards/:id" component={CardDetail} />
             <Route path="/cards" component={Cards} />
             <Route path="/scheduled/analise" component={ScheduledAnalysis} />

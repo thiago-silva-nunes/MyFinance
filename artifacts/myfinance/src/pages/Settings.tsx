@@ -1,6 +1,5 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useFinance } from '@/context/FinanceContext';
-import { computeBankBalanceAtDate } from '@/lib/balanceUtils';
 import { useAuth } from '@/context/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -8,9 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
-import { Moon, Sun, DollarSign, Database, LogOut, Loader2, Cloud, Bell, BellOff, BellRing, Plus, Edit2, Trash2, Building2, TrendingUp, TrendingDown, SlidersHorizontal, FileUp } from 'lucide-react';
-import { formatCurrency } from '@/lib/utils';
+import { Moon, Sun, DollarSign, Database, LogOut, Loader2, Cloud, Bell, BellOff, BellRing, FileUp } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   isNotificationSupported, getNotificationPermission,
@@ -18,140 +15,8 @@ import {
 } from '@/services/notificationService';
 import { Categories } from '@/pages/Categories';
 import { Cards } from '@/pages/Cards';
-import { BankFormDialog } from '@/components/BankFormDialog';
-import { BalanceAdjustDialog } from '@/components/BalanceAdjustDialog';
+import { Banks } from '@/pages/Banks';
 import { ImportDataDialog } from '@/components/ImportDataDialog';
-import { BankAccount } from '@/data/mockData';
-import { getIcon } from '@/components/IconMap';
-
-// ─── Banks panel ──────────────────────────────────────────────────────────────
-
-const ACCOUNT_TYPE_LABELS: Record<string, string> = {
-  'corrente': 'Corrente',
-  'poupança': 'Poupança',
-  'investimento': 'Investimento',
-};
-
-function BanksPanel() {
-  const { banks, deleteBank, transactions, transfers, balanceSnapshots } = useFinance();
-
-  // Snapshot-aware balance: uses latest balance snapshot per bank when available
-  const bankBalances = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const bank of banks) {
-      map[bank.id] = computeBankBalanceAtDate(bank.id, bank, transactions, transfers, balanceSnapshots);
-    }
-    return map;
-  }, [banks, transactions, transfers, balanceSnapshots]);
-
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<BankAccount | null>(null);
-  const [adjustBank, setAdjustBank] = useState<BankAccount | null>(null);
-  const [adjustOpen, setAdjustOpen] = useState(false);
-
-  const handleDelete = async (bank: BankAccount) => {
-    if (!confirm(`Excluir a conta "${bank.name}"? As transações vinculadas a ela continuarão existindo.`)) return;
-    try {
-      await deleteBank(bank.id);
-      toast.success('Conta removida');
-    } catch {
-      toast.error('Erro ao remover conta');
-    }
-  };
-
-  const openNew = () => { setEditing(null); setDialogOpen(true); };
-  const openEdit = (b: BankAccount) => { setEditing(b); setDialogOpen(true); };
-  const openAdjust = (b: BankAccount) => { setAdjustBank(b); setAdjustOpen(true); };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold">Bancos / Contas</h2>
-          <p className="text-sm text-muted-foreground">Gerencie suas contas bancárias para rastrear de onde vêm e para onde vão seus recursos.</p>
-        </div>
-        <Button onClick={openNew} className="shrink-0">
-          <Plus className="w-4 h-4 mr-2" /> Nova Conta
-        </Button>
-      </div>
-
-      {banks.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 flex flex-col items-center gap-3 text-center">
-            <Building2 className="w-10 h-10 text-muted-foreground/30" />
-            <p className="font-medium text-muted-foreground">Nenhuma conta cadastrada</p>
-            <p className="text-sm text-muted-foreground max-w-sm">
-              Cadastre seus bancos e contas para identificar de qual conta saiu cada gasto.
-            </p>
-            <Button variant="outline" onClick={openNew} className="mt-1">
-              <Plus className="w-4 h-4 mr-2" /> Cadastrar primeira conta
-            </Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {banks.map(bank => {
-            const Icon = getIcon(bank.icon);
-            return (
-              <Card key={bank.id} className="group hover-elevate transition-all">
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: `${bank.color}20` }}>
-                        <Icon className="w-5 h-5" style={{ color: bank.color }} />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-sm truncate">{bank.name}</p>
-                        <Badge variant="secondary" className="text-[10px] h-4 px-1.5 mt-0.5">
-                          {ACCOUNT_TYPE_LABELS[bank.type] ?? bank.type}
-                        </Badge>
-                        {/* Calculated balance */}
-                        {(() => {
-                          const bal = bankBalances[bank.id] ?? bank.initialBalance;
-                          const isPositive = bal >= 0;
-                          return (
-                            <p className={`text-xs font-semibold mt-1 ${isPositive ? 'text-emerald-600' : 'text-destructive'}`}>
-                              {formatCurrency(bal)}
-                            </p>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        title="Ajustar saldo"
-                        onClick={() => openAdjust(bank)}
-                      >
-                        <SlidersHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(bank)}>
-                        <Edit2 className="w-3.5 h-3.5 text-muted-foreground" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 hover:bg-destructive/10" onClick={() => handleDelete(bank)}>
-                        <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      <BankFormDialog open={dialogOpen} onOpenChange={setDialogOpen} bank={editing} />
-      <BalanceAdjustDialog
-        open={adjustOpen}
-        onOpenChange={setAdjustOpen}
-        bank={adjustBank}
-        currentBalance={adjustBank ? (bankBalances[adjustBank.id] ?? adjustBank.initialBalance) : 0}
-      />
-    </div>
-  );
-}
 
 // ─── Main Settings page ───────────────────────────────────────────────────────
 
@@ -422,7 +287,7 @@ export const Settings = () => {
 
         {/* ── Bancos ───────────────────────────────────────────────────────── */}
         <TabsContent value="bancos">
-          <BanksPanel />
+          <Banks />
         </TabsContent>
       </Tabs>
 
