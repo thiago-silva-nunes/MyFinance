@@ -302,6 +302,9 @@ export const Dre = () => {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">DRE</h1>
           <p className="text-muted-foreground">Demonstrativo de Resultado do Exercício</p>
+          <p className="text-[10px] text-muted-foreground/60 font-medium tracking-wide uppercase mt-0.5">
+            Regime de competência · inclui pagas e pendentes
+          </p>
         </div>
 
         {/* Period selector */}

@@ -1,0 +1,29 @@
+Encontrei 2 inconsistências no Dashboard que preciso esclarecer/corrigir:
+1. Card "DRE — Este mês" usa base diferente dos cards "Receitas/Despesas/Resultado do Mês"
+Comparando os números do mesmo período ("Este mês"), tenho:
+Cards do topo (Resultado/Receitas/Despesas)Card "DRE — Este mês"ReceitaR$ 2.159,60R$ 5.489,60DespesaR$ 1.456,24R$ 3.225,17ResultadoR$ 703,36R$ 2.264,43
+A diferença de receita (R$ 3.330,00) bate exatamente com a soma das transações de receita pendentes do período (ex: Salário Greif R$ 2.800 + VA-Greif R$ 480 + Prêmio Brigada R$ 50). Ou seja:
+
+Os cards do topo parecem somar só transações pagas (regime de caixa).
+O card DRE parece somar pagas + pendentes (regime de competência).
+
+Os dois critérios são legítimos financeiramente, mas hoje nenhum dos dois cards deixa claro qual base está usando, e ambos dizem só "Este mês" — isso é confuso porque parece inconsistência/bug quando na verdade são duas visões diferentes.
+O que preciso que você faça:
+
+Primeiro, confirme no código (Dashboard.tsx) qual filtro cada card usa hoje: os cards do topo (Resultado do Mês, Receitas, Despesas) filtram por status === 'paid'? E o card dreQuickSummary (linha ~195-210) usa todas as transações do período sem filtrar por status? Me confirme isso antes de mudar.
+Depois, padronize os dois para usarem a mesma base, e adicione um rótulo visual claro indicando qual regime está sendo usado. Sugestão:
+
+Os cards do topo (Resultado/Receitas/Despesas) continuam no regime de caixa (só pago), mas adicione um texto pequeno abaixo como "Realizado (pago)".
+O card "DRE — Este mês" deve refletir o DRE completo do período, que por natureza contábil é regime de competência (inclui pendentes) — mantenha assim, mas adicione o texto "Inclui pendências do período" abaixo do título, para deixar claro que ele soma mais do que os cards de cima.
+
+
+Garanta que essa mesma explicação/rótulo apareça também na tela completa de DRE (pages/Dre.tsx), caso ela tenha o mesmo comportamento e a mesma ambiguidade.
+
+2. Card "Cartões de Crédito" mostra "Total utilizado: R$ 0,00" mas ao mesmo tempo "5 faturas em aberto"
+Isso é logicamente inconsistente — se há 5 faturas em aberto, deveria haver algum valor utilizado nos cartões. Investigue:
+
+Confirme se "Total utilizado" está somando o total_amount das faturas com status open/closed (não pagas) corretamente, ou se está usando outro cálculo (ex: soma de limit_amount - available, que pode estar quebrado).
+Verifique se há algum problema de tipo/formatação fazendo o valor zerar (ex: soma de string em vez de number, ou filtro que não encontra nenhuma fatura por engano de comparação de card_id).
+Rode uma query no Supabase somando total_amount de todas as invoices com status IN ('open', 'closed') do usuário, e compare com o que aparece no card — me diga o resultado antes de aplicar a correção.
+
+Depois de corrigir os dois pontos, me mostre um print do Dashboard atualizado com os rótulos de regime de caixa/competência visíveis e o valor correto de "Total utilizado" nos cartões, junto com a query que usou para validar.

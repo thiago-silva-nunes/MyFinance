@@ -173,9 +173,17 @@ export const Dashboard = () => {
 
     for (const card of cards) {
       const cardInvoices = invoices.filter(inv => inv.cardId === card.id && inv.status !== 'paid');
-      const cardUsed = cardInvoices.reduce((s, inv) => s + inv.totalAmount, 0);
-      used += cardUsed;
       openCount += cardInvoices.length;
+      // Compute from transactions per open referenceMonth — more reliable than invoice.total_amount,
+      // which may be 0 if the DB recalculation trigger hasn't run for newly created invoices.
+      const openMonths = new Set(cardInvoices.map(inv => inv.referenceMonth));
+      const cardUsedFromTx = transactions
+        .filter(t => t.cardId === card.id && t.referenceMonth && openMonths.has(t.referenceMonth) && !t.isBalanceAdjustment)
+        .reduce((s, t) => s + t.amount, 0);
+      const cardUsedFromInv = cardInvoices.reduce((s, inv) => s + inv.totalAmount, 0);
+      // Prefer transaction-based total; fall back to invoice total if no matching transactions found
+      const cardUsed = cardUsedFromTx > 0 ? cardUsedFromTx : cardUsedFromInv;
+      used += cardUsed;
       if (card.limit > 0 && (cardUsed / card.limit) > 0.8) highUsage.push(card);
     }
 
@@ -190,7 +198,7 @@ export const Dashboard = () => {
     }
 
     return { totalUsed: used, openInvoicesCount: openCount, highUsageCards: highUsage, dueSoonInvoices: dueSoon };
-  }, [cards, invoices, range]);
+  }, [cards, invoices, transactions, range]);
 
   // DRE quick summary for selected period
   const dreQuickSummary = useMemo(() => {
@@ -428,6 +436,7 @@ export const Dashboard = () => {
               <CardContent>
                 <div className={`text-2xl font-bold ${colorClass}`}>{mask(value)}</div>
                 <p className="text-xs text-muted-foreground mt-1">{sub}</p>
+                <p className="text-[10px] text-muted-foreground/50 mt-0.5 font-medium tracking-wide uppercase">Realizado (pago)</p>
               </CardContent>
             </Card>
           </motion.div>
@@ -448,6 +457,9 @@ export const Dashboard = () => {
               </CardTitle>
               <Link href="/dre"><Button variant="ghost" size="sm" className="text-xs">Ver completo</Button></Link>
             </div>
+            <p className="text-[10px] text-muted-foreground/60 font-medium tracking-wide uppercase mt-1">
+              Regime de competência · inclui pendências do período
+            </p>
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="flex justify-between text-sm">
