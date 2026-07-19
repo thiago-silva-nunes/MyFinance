@@ -1,0 +1,25 @@
+A correção anterior sobre "Saldo Previsto" nas Contas Bancárias do Dashboard não resolveu o problema. Preciso que você valide com números reais, não apenas "aplique e não teste".
+Números de referência (tela de Pendências, que já está correta)
+
+Contas atrasadas: 4 itens, somando R$ 2.510,51 no total ("Total a pagar no mês" já inclui vencidas + a vencer).
+
+Parcela Apê - Porto Lisboa: R$ 895,20 (venceu 17/06/26)
+RGE: R$ 237,84 (venceu 18/06/26)
+Parcela Apê - Porto Lisboa: R$ 881,47 (venceu 17/07/26)
+Cheque Especial - Bradesco: R$ 366,00 (venceu 18/07/26)
+
+
+A vencer este mês: E-Consignado - Creditas, R$ 130,00
+Projeção ao fim do mês: -R$ 755,36 (esse número já está correto na tela de Pendências)
+
+O que precisa acontecer
+Cada uma dessas transações pendentes/vencidas está vinculada a uma conta bancária específica (bank_id). O "Saldo Previsto" de cada conta individual no card "Contas Bancárias" do Dashboard precisa refletir exatamente esses valores, descontados da conta correta. Por exemplo: se "Cheque Especial - Bradesco" (R$ 366,00, vencida) está vinculada à conta Bradesco, então:
+Saldo Previsto (Bradesco) = Saldo Real (Bradesco) - R$ 366,00 - (outras pendências do Bradesco no período)
+Ações concretas que preciso que você faça, nessa ordem
+
+Rode uma query no Supabase que liste todas as transações com status = 'pending' e type = 'expense', mostrando description, amount, date, bank_id, scheduled_id. Me mostre o resultado — preciso confirmar se essas 4 transações vencidas + a "E-Consignado" realmente têm um bank_id preenchido (não nulo).
+Se bank_id estiver nulo nessas transações: isso confirma que o motor de recorrência (recurringEngine.ts) não está gravando a conta bancária ao gerar essas transações — corrija a gravação (conforme já pedi antes: verificar se scheduled.bankId está lendo do campo certo vindo do Supabase, snake_case vs camelCase).
+Se bank_id estiver preenchido corretamente: então o problema está no cálculo do Dashboard — confirme que o filtro usado para "Saldo Previsto" realmente inclui t.date < today (vencidas) e não só t.date >= today (a vencer). Me mostre o trecho de código exato (arquivo + linhas) que faz esse filtro hoje, antes de alterar.
+Depois de corrigir a causa raiz (seja ela no motor de recorrência ou no filtro do Dashboard), me mostre um print do card "Contas Bancárias" do Dashboard com o Saldo Previsto de cada conta, e confirme por escrito que a soma das diferenças entre Saldo Real e Saldo Previsto de todas as contas bate com os R$ 2.510,51 + R$ 130,00 informados acima (descontando o que for de cada conta específica).
+
+Não me diga apenas "corrigido" — mostre a query, o trecho de código alterado, e o print de validação antes de encerrar essa tarefa.
